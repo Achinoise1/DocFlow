@@ -119,7 +119,7 @@ class FileListItem(QWidget):
         self.percent_label.setAlignment(Qt.AlignCenter)
 
         # 删除按钮
-        remove_btn = QPushButton('✕')
+        remove_btn = QPushButton('×')
         remove_btn.setObjectName('removeBtn')
         remove_btn.setFixedSize(28, 28)
         remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.file_path))

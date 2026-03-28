@@ -12,7 +12,6 @@ if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
 
 from ui.main_window import MainWindow
 from utils.logger import logger
@@ -20,12 +19,6 @@ from utils.logger import logger
 
 def main():
     logger.info('DocFlow 启动')
-
-    # 高DPI支持
-    if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
     app.setApplicationName('DocFlow')

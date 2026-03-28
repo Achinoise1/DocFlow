@@ -62,21 +62,28 @@ def pdf_to_ppt(input_path: str, output_path: str) -> str:
 
 
 def pdf_to_images(input_path: str, output_dir: str, fmt: str = 'png', dpi: int = 200) -> list:
-    """PDF 转图片，每页一张"""
+    """PDF 转图片，每页一张；多页时在 output_dir 下创建以PDF命名的子目录"""
     try:
         from pdf2image import convert_from_path
 
         images = convert_from_path(input_path, dpi=dpi)
         base_name = os.path.splitext(os.path.basename(input_path))[0]
-        output_paths = []
 
+        # 多页创建子目录，单页直接放在 output_dir
+        if len(images) > 1:
+            save_dir = os.path.join(output_dir, base_name)
+            os.makedirs(save_dir, exist_ok=True)
+        else:
+            save_dir = output_dir
+
+        output_paths = []
         for i, img in enumerate(images):
             out_name = f'{base_name}_page_{i + 1}.{fmt}'
-            out_path = os.path.join(output_dir, out_name)
+            out_path = os.path.join(save_dir, out_name)
             img.save(out_path, fmt.upper() if fmt != 'jpg' else 'JPEG')
             output_paths.append(out_path)
 
-        log_conversion(input_path, output_dir, True)
+        log_conversion(input_path, save_dir, True)
         return output_paths
     except Exception as e:
         error_msg = str(e)
