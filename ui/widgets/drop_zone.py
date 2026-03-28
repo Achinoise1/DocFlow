@@ -110,7 +110,13 @@ class FileListItem(QWidget):
         self.progress_bar.setFixedWidth(120)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
         self.progress_bar.setObjectName('fileProgress')
+
+        self.percent_label = QLabel('0%')
+        self.percent_label.setObjectName('percentLabel')
+        self.percent_label.setFixedWidth(40)
+        self.percent_label.setAlignment(Qt.AlignCenter)
 
         # 删除按钮
         remove_btn = QPushButton('✕')
@@ -121,6 +127,7 @@ class FileListItem(QWidget):
         layout.addWidget(icon_label)
         layout.addLayout(info_layout, 1)
         layout.addWidget(self.progress_bar)
+        layout.addWidget(self.percent_label)
         layout.addWidget(self.status_label)
         layout.addWidget(remove_btn)
 
@@ -134,12 +141,14 @@ class FileListItem(QWidget):
 
     def set_progress(self, value: int):
         self.progress_bar.setValue(value)
+        self.percent_label.setText(f'{value}%')
 
     def set_waiting(self):
         self.status_label.setText('等待中')
         self.status_label.setProperty('state', 'waiting')
         self.status_label.style().polish(self.status_label)
         self.progress_bar.setValue(0)
+        self.percent_label.setText('0%')
 
     def set_converting(self):
         self.status_label.setText('转换中...')

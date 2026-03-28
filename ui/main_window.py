@@ -4,9 +4,9 @@ import uuid
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QPushButton, QLabel, QComboBox, QFileDialog, QScrollArea,
-    QFrame, QMessageBox, QSpinBox, QSplitter
+    QFrame, QMessageBox, QSpinBox, QSplitter, QCheckBox, QApplication
 )
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Slot, QSettings
 from PySide6.QtGui import QIcon
 
 from ui.widgets.drop_zone import DropZone, FileListItem
@@ -37,8 +37,14 @@ class MainWindow(QMainWindow):
         # 文件列表数据: {file_path: {'widget': FileListItem, 'task_id': str}}
         self._file_items = {}
         self._output_dir = None
+        self._output_paths = []
+
+        # 用户设置
+        self._settings = QSettings('DocFlow', 'DocFlow')
+        self._current_theme = self._settings.value('theme', 'light')
 
         self._init_ui()
+        self._apply_theme(self._current_theme)
 
     def _init_ui(self):
         central_widget = QWidget()
@@ -61,6 +67,14 @@ class MainWindow(QMainWindow):
         title_v.addWidget(subtitle_label)
         title_layout.addLayout(title_v)
         title_layout.addStretch()
+
+        self.theme_btn = QPushButton('🌙')
+        self.theme_btn.setObjectName('themeBtn')
+        self.theme_btn.setFixedSize(36, 36)
+        self.theme_btn.setToolTip('切换主题')
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        title_layout.addWidget(self.theme_btn)
+
         main_layout.addLayout(title_layout)
 
         # ===== 功能选择 Tabs =====
@@ -132,6 +146,12 @@ class MainWindow(QMainWindow):
 
         btn_layout.addWidget(self.output_btn)
         btn_layout.addWidget(self.output_label)
+
+        self.auto_open_check = QCheckBox('转换完成后自动打开')
+        self.auto_open_check.setChecked(True)
+        self.auto_open_check.setObjectName('autoOpenCheck')
+        btn_layout.addWidget(self.auto_open_check)
+
         btn_layout.addStretch()
 
         self.start_btn = QPushButton('▶ 开始转换')
@@ -301,6 +321,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, '提示', '请先添加文件')
             return
 
+        self._output_paths.clear()
         conversion_type = self._get_current_conversion_type()
 
         # 批量图片合并模式
@@ -389,13 +410,15 @@ class MainWindow(QMainWindow):
                 item_data['widget'].set_progress(percent)
                 break
 
-    @Slot(str, bool, str)
-    def _on_task_finished(self, task_id: str, success: bool, message: str):
+    @Slot(str, bool, str, str)
+    def _on_task_finished(self, task_id: str, success: bool, message: str, output_path: str):
         for item_data in self._file_items.values():
             if item_data['task_id'] == task_id:
                 if success:
                     item_data['widget'].set_status('✓ 完成', True)
                     item_data['widget'].set_progress(100)
+                    if output_path:
+                        self._output_paths.append(output_path)
                 else:
                     item_data['widget'].set_status('✕ 失败', False)
                 break
@@ -408,6 +431,17 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.statusBar().showMessage('转换完成')
+
+        if self.auto_open_check.isChecked() and self._output_paths:
+            if len(self._output_paths) <= 3:
+                for path in self._output_paths:
+                    if os.path.exists(path):
+                        os.startfile(path)
+            else:
+                folder = os.path.dirname(self._output_paths[0])
+                if os.path.isdir(folder):
+                    os.startfile(folder)
+            self._output_paths.clear()
 
     # ===== 拖拽支持（窗口级别） =====
 
@@ -423,3 +457,32 @@ class MainWindow(QMainWindow):
                 files.append(path)
         if files:
             self._add_files(files)
+
+    # ===== 主题切换 =====
+
+    def _apply_theme(self, theme_name: str):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if theme_name == 'dark':
+            qss_file = os.path.join(base_dir, 'resources', 'styles.qss')
+        else:
+            qss_file = os.path.join(base_dir, 'resources', 'styles_light.qss')
+
+        if os.path.exists(qss_file):
+            with open(qss_file, 'r', encoding='utf-8') as f:
+                QApplication.instance().setStyleSheet(f.read())
+
+        self._current_theme = theme_name
+        self._settings.setValue('theme', theme_name)
+        self._update_theme_button()
+
+    def _toggle_theme(self):
+        new_theme = 'dark' if self._current_theme == 'light' else 'light'
+        self._apply_theme(new_theme)
+
+    def _update_theme_button(self):
+        if self._current_theme == 'light':
+            self.theme_btn.setText('🌙')
+            self.theme_btn.setToolTip('切换到深色主题')
+        else:
+            self.theme_btn.setText('☀️')
+            self.theme_btn.setToolTip('切换到浅色主题')
