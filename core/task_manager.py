@@ -14,7 +14,7 @@ class TaskSignals(QObject):
     """任务信号"""
     started = Signal(str)        # task_id
     progress = Signal(str, int)  # task_id, percent
-    finished = Signal(str, bool, str)  # task_id, success, message
+    finished = Signal(str, bool, str, str)  # task_id, success, message, output_path
     all_done = Signal()
 
 
@@ -46,10 +46,10 @@ class ConvertTask(QRunnable):
         try:
             result = self._do_convert()
             self.signals.progress.emit(self.task_id, 100)
-            self.signals.finished.emit(self.task_id, True, f'转换成功: {os.path.basename(result)}')
+            self.signals.finished.emit(self.task_id, True, f'转换成功: {os.path.basename(result)}', result)
         except Exception as e:
             logger.error(f'任务 {self.task_id} 失败: {traceback.format_exc()}')
-            self.signals.finished.emit(self.task_id, False, str(e))
+            self.signals.finished.emit(self.task_id, False, str(e), '')
 
     def _do_convert(self) -> str:
         ext = get_file_ext(self.input_path)
@@ -114,11 +114,12 @@ class BatchImageTask(QRunnable):
             self.signals.progress.emit(self.task_id, 100)
             self.signals.finished.emit(
                 self.task_id, True,
-                f'转换成功: {os.path.basename(self.output_path)}'
+                f'转换成功: {os.path.basename(self.output_path)}',
+                self.output_path
             )
         except Exception as e:
             logger.error(f'批量任务 {self.task_id} 失败: {traceback.format_exc()}')
-            self.signals.finished.emit(self.task_id, False, str(e))
+            self.signals.finished.emit(self.task_id, False, str(e), '')
 
 
 class TaskManager(QObject):
@@ -126,7 +127,7 @@ class TaskManager(QObject):
 
     task_started = Signal(str)
     task_progress = Signal(str, int)
-    task_finished = Signal(str, bool, str)
+    task_finished = Signal(str, bool, str, str)
     all_tasks_done = Signal()
 
     def __init__(self, parent=None):
@@ -174,8 +175,8 @@ class TaskManager(QObject):
     def _on_task_progress(self, task_id: str, percent: int):
         self.task_progress.emit(task_id, percent)
 
-    def _on_task_finished(self, task_id: str, success: bool, message: str):
-        self.task_finished.emit(task_id, success, message)
+    def _on_task_finished(self, task_id: str, success: bool, message: str, output_path: str):
+        self.task_finished.emit(task_id, success, message, output_path)
         self._pending_count -= 1
         if self._pending_count <= 0:
             self._pending_count = 0

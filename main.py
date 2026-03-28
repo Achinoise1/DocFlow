@@ -18,15 +18,6 @@ from ui.main_window import MainWindow
 from utils.logger import logger
 
 
-def load_stylesheet() -> str:
-    """加载QSS样式表"""
-    qss_path = os.path.join(BASE_DIR, 'resources', 'styles.qss')
-    if os.path.exists(qss_path):
-        with open(qss_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    return ''
-
-
 def main():
     logger.info('DocFlow 启动')
 
@@ -39,11 +30,6 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('DocFlow')
     app.setApplicationDisplayName('DocFlow - 文档转换工具')
-
-    # 加载样式
-    stylesheet = load_stylesheet()
-    if stylesheet:
-        app.setStyleSheet(stylesheet)
 
     window = MainWindow()
     window.show()
