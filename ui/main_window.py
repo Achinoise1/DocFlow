@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
         self.task_manager.task_finished.connect(self._on_task_finished)
         self.task_manager.all_tasks_done.connect(self._on_all_done)
 
-        # 文件列表数据: {file_path: {'widget': FileListItem, 'task_id': str}}
+        # 文件列表数据: {file_path: {'widget': FileListItem, 'task_id': str, 'done': bool}}
         self._file_items = {}
         self._output_dir = None
         self._output_paths = []
@@ -81,13 +81,23 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setObjectName('mainTabs')
 
+        self.tab_doc = self._create_tab_page('文档转换', 'doc')
         self.tab_pdf = self._create_tab_page('PDF转换', 'pdf')
         self.tab_image = self._create_tab_page('图片转换', 'image')
-        self.tab_doc = self._create_tab_page('文档转换', 'doc')
 
+        self.tab_widget.addTab(self.tab_doc, '📄 文档转换')
         self.tab_widget.addTab(self.tab_pdf, '📕 PDF转换')
         self.tab_widget.addTab(self.tab_image, '🖼️ 图片转换')
-        self.tab_widget.addTab(self.tab_doc, '📄 文档转换')
+
+        # 切换Tab时自动剔除不兼容文件
+        self.tab_widget.currentChanged.connect(self._on_conversion_type_changed)
+        # doc tab的combo切换时也要处理
+        doc_combo = self.tab_doc.findChild(QComboBox, 'combo_doc')
+        if doc_combo:
+            doc_combo.currentIndexChanged.connect(self._on_conversion_type_changed)
+
+        # 固定高度，避免Tab面板撑开
+        self.tab_widget.setMaximumHeight(80)
 
         main_layout.addWidget(self.tab_widget)
 
@@ -177,8 +187,9 @@ class MainWindow(QMainWindow):
     def _create_tab_page(self, title: str, tab_type: str) -> QWidget:
         """创建一个功能Tab页面"""
         page = QWidget()
+        page.setFixedHeight(40)
         layout = QHBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(12)
 
         # 转换类型选择
@@ -188,7 +199,6 @@ class MainWindow(QMainWindow):
         combo.setMinimumWidth(200)
 
         if tab_type == 'pdf':
-            combo.addItem('Word/PPT → PDF', 'to_pdf')
             combo.addItem('PDF → Word', 'pdf_to_word')
             combo.addItem('PDF → PPT', 'pdf_to_ppt')
             combo.addItem('PDF → 图片', 'pdf_to_image')
@@ -196,38 +206,86 @@ class MainWindow(QMainWindow):
             combo.addItem('图片 → PDF（合并）', 'images_to_pdf')
             combo.addItem('图片 → Word', 'images_to_word')
         elif tab_type == 'doc':
-            combo.addItem('Word → PDF', 'to_pdf')
-            combo.addItem('PPT → PDF', 'to_pdf')
-            combo.addItem('PDF → Word', 'pdf_to_word')
+            combo.addItem('Word → PDF', 'word_to_pdf')
+            combo.addItem('PPT → PDF', 'ppt_to_pdf')
 
         layout.addWidget(label)
         layout.addWidget(combo)
 
-        # PDF转图片的选项
+        # PDF转图片的选项（默认隐藏，只在选择PDF→图片时显示）
         if tab_type == 'pdf':
-            fmt_label = QLabel('图片格式:')
-            fmt_combo = QComboBox()
-            fmt_combo.setObjectName('combo_img_format')
-            fmt_combo.addItem('PNG', 'png')
-            fmt_combo.addItem('JPG', 'jpg')
-            fmt_combo.setFixedWidth(80)
+            self._fmt_label = QLabel('图片格式:')
+            self._fmt_combo = QComboBox()
+            self._fmt_combo.setObjectName('combo_img_format')
+            self._fmt_combo.addItem('PNG', 'png')
+            self._fmt_combo.addItem('JPG', 'jpg')
+            self._fmt_combo.setFixedWidth(80)
 
-            dpi_label = QLabel('DPI:')
-            dpi_spin = QSpinBox()
-            dpi_spin.setObjectName('spin_dpi')
-            dpi_spin.setRange(72, 600)
-            dpi_spin.setValue(200)
-            dpi_spin.setSingleStep(50)
-            dpi_spin.setFixedWidth(80)
+            self._dpi_label = QLabel('DPI:')
 
-            layout.addWidget(fmt_label)
-            layout.addWidget(fmt_combo)
-            layout.addWidget(dpi_label)
-            layout.addWidget(dpi_spin)
+            dpi_minus = QPushButton('−')
+            dpi_minus.setObjectName('dpiBtn')
+            dpi_minus.setFixedSize(28, 28)
+
+            self._dpi_spin = QSpinBox()
+            self._dpi_spin.setObjectName('spin_dpi')
+            self._dpi_spin.setRange(72, 600)
+            self._dpi_spin.setValue(200)
+            self._dpi_spin.setSingleStep(50)
+            self._dpi_spin.setFixedWidth(60)
+            self._dpi_spin.setButtonSymbols(QSpinBox.NoButtons)
+            self._dpi_spin.setAlignment(Qt.AlignCenter)
+
+            dpi_plus = QPushButton('+')
+            dpi_plus.setObjectName('dpiBtn')
+            dpi_plus.setFixedSize(28, 28)
+
+            dpi_minus.clicked.connect(lambda: self._dpi_spin.stepDown())
+            dpi_plus.clicked.connect(lambda: self._dpi_spin.stepUp())
+
+            self._pdf_image_widgets = [
+                self._fmt_label, self._fmt_combo,
+                self._dpi_label, dpi_minus, self._dpi_spin, dpi_plus
+            ]
+
+            for w in self._pdf_image_widgets:
+                layout.addWidget(w)
+                w.setVisible(False)
+
+            combo.currentIndexChanged.connect(self._on_pdf_combo_changed)
 
         layout.addStretch()
         return page
 
+    def _on_pdf_combo_changed(self, index: int):
+        """根据PDF Tab选择显示/隐藏DPI选项"""
+        combo = self.tab_pdf.findChild(QComboBox, 'combo_pdf')
+        is_pdf_to_image = combo and combo.currentData() == 'pdf_to_image'
+        for w in self._pdf_image_widgets:
+            w.setVisible(is_pdf_to_image)
+    def _on_conversion_type_changed(self, _=None):
+        """切换转换类型时自动剔除列表中不兼容的文件"""
+        self._filter_files_for_current_type()
+
+    def _filter_files_for_current_type(self):
+        """剔除文件列表中不符合当前转换类型的文件"""
+        if not self._file_items:
+            return
+        conversion_type = self._get_current_conversion_type()
+        accepted_exts = self._get_accepted_extensions(conversion_type)
+        if not accepted_exts:
+            return
+
+        to_remove = [
+            path for path in list(self._file_items.keys())
+            if get_file_ext(path) not in accepted_exts
+        ]
+        for path in to_remove:
+            self._remove_file(path)
+
+        if to_remove:
+            names = ', '.join(os.path.basename(p) for p in to_remove)
+            self.statusBar().showMessage(f'已移除不匹配的文件：{names}', 4000)
     # ===== 文件操作 =====
 
     def _browse_files(self):
@@ -243,10 +301,21 @@ class MainWindow(QMainWindow):
         self._add_files(files)
 
     def _add_files(self, file_paths: list):
-        """添加文件到列表"""
+        """添加文件到列表，上传时立即校验类型"""
+        conversion_type = self._get_current_conversion_type()
+        accepted_exts = self._get_accepted_extensions(conversion_type)
+
+        rejected = []
         for path in file_paths:
             if path in self._file_items:
                 continue
+
+            # 上传时立即校验，不匹配则拒绝
+            if accepted_exts:
+                ext = get_file_ext(path)
+                if ext not in accepted_exts:
+                    rejected.append(os.path.basename(path))
+                    continue
 
             item_widget = FileListItem(path)
             item_widget.remove_clicked.connect(self._remove_file)
@@ -257,8 +326,15 @@ class MainWindow(QMainWindow):
 
             self._file_items[path] = {
                 'widget': item_widget,
-                'task_id': None
+                'task_id': None,
+                'done': False
             }
+
+        if rejected:
+            QMessageBox.warning(
+                self, '文件类型不匹配',
+                f'以下文件与当前转换模式不匹配，已忽略：\n' + '\n'.join(rejected)
+            )
 
         self._update_file_count()
 
@@ -294,11 +370,11 @@ class MainWindow(QMainWindow):
         """获取当前选中的转换类型"""
         current_tab = self.tab_widget.currentIndex()
         if current_tab == 0:
-            combo = self.tab_pdf.findChild(QComboBox, 'combo_pdf')
-        elif current_tab == 1:
-            combo = self.tab_image.findChild(QComboBox, 'combo_image')
-        else:
             combo = self.tab_doc.findChild(QComboBox, 'combo_doc')
+        elif current_tab == 1:
+            combo = self.tab_pdf.findChild(QComboBox, 'combo_pdf')
+        else:
+            combo = self.tab_image.findChild(QComboBox, 'combo_image')
 
         if combo:
             return combo.currentData()
@@ -307,13 +383,25 @@ class MainWindow(QMainWindow):
     def _get_pdf_to_image_options(self) -> dict:
         """获取PDF转图片的选项"""
         options = {}
-        fmt_combo = self.tab_pdf.findChild(QComboBox, 'combo_img_format')
-        dpi_spin = self.tab_pdf.findChild(QSpinBox, 'spin_dpi')
-        if fmt_combo:
-            options['format'] = fmt_combo.currentData()
-        if dpi_spin:
-            options['dpi'] = dpi_spin.value()
+        if hasattr(self, '_fmt_combo') and self._fmt_combo:
+            options['format'] = self._fmt_combo.currentData()
+        if hasattr(self, '_dpi_spin') and self._dpi_spin:
+            options['dpi'] = self._dpi_spin.value()
         return options
+
+    def _get_accepted_extensions(self, conversion_type: str) -> list:
+        """根据转换类型获取允许的输入文件扩展名"""
+        ext_map = {
+            'word_to_pdf': ['.doc', '.docx'],
+            'ppt_to_pdf':  ['.ppt', '.pptx'],
+            'to_pdf':      ['.doc', '.docx', '.ppt', '.pptx'],
+            'pdf_to_word': ['.pdf'],
+            'pdf_to_ppt':  ['.pdf'],
+            'pdf_to_image': ['.pdf'],
+            'images_to_pdf': ['.jpg', '.jpeg', '.png'],
+            'images_to_word': ['.jpg', '.jpeg', '.png'],
+        }
+        return ext_map.get(conversion_type, [])
 
     def _start_conversion(self):
         """开始转换"""
@@ -329,15 +417,42 @@ class MainWindow(QMainWindow):
             self._start_batch_image_conversion(conversion_type)
             return
 
-        self.start_btn.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
-        self.statusBar().showMessage('正在转换...')
+        # 获取当前转换类型接受的文件扩展名
+        accepted_exts = self._get_accepted_extensions(conversion_type)
 
         options = {}
         if conversion_type == 'pdf_to_image':
             options = self._get_pdf_to_image_options()
 
-        for path, item_data in self._file_items.items():
+        # 只处理未完成的文件
+        pending = {}
+        skipped = []
+        for p, d in self._file_items.items():
+            if d['done']:
+                continue
+            ext = get_file_ext(p)
+            if accepted_exts and ext not in accepted_exts:
+                skipped.append(os.path.basename(p))
+                d['widget'].set_status('类型不匹配', False)
+            else:
+                pending[p] = d
+
+        if skipped:
+            QMessageBox.warning(
+                self, '文件类型不匹配',
+                f'以下文件不支持当前转换类型，已跳过：\n{", ".join(skipped)}'
+            )
+
+        if not pending:
+            if not skipped:
+                QMessageBox.information(self, '提示', '所有文件已转换完成，请添加新文件')
+            return
+
+        self.start_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
+        self.statusBar().showMessage('正在转换...')
+
+        for path, item_data in pending.items():
             task_id = str(uuid.uuid4())[:8]
             item_data['task_id'] = task_id
             item_data['widget'].set_waiting()
@@ -349,8 +464,8 @@ class MainWindow(QMainWindow):
 
     def _start_batch_image_conversion(self, conversion_type: str):
         """批量图片合并转换"""
-        image_paths = [p for p in self._file_items.keys()
-                       if get_file_type(p) == 'image']
+        image_paths = [p for p, d in self._file_items.items()
+                       if get_file_type(p) == 'image' and not d['done']]
 
         if not image_paths:
             QMessageBox.warning(self, '提示', '请添加图片文件')
@@ -375,10 +490,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('正在合并...')
 
         task_id = str(uuid.uuid4())[:8]
-        # 标记所有文件
-        for item_data in self._file_items.values():
-            item_data['task_id'] = task_id
-            item_data['widget'].set_waiting()
+        # 只标记参与合并的图片文件
+        for path, item_data in self._file_items.items():
+            if path in image_paths:
+                item_data['task_id'] = task_id
+                item_data['widget'].set_waiting()
 
         self.task_manager.submit_batch_image_task(
             task_id, image_paths, conversion_type, save_path
@@ -393,6 +509,8 @@ class MainWindow(QMainWindow):
 
         for item_data in self._file_items.values():
             item_data['widget'].set_waiting()
+            item_data['done'] = False
+            item_data['task_id'] = None
 
     # ===== 任务回调 =====
 
@@ -401,14 +519,12 @@ class MainWindow(QMainWindow):
         for item_data in self._file_items.values():
             if item_data['task_id'] == task_id:
                 item_data['widget'].set_converting()
-                break
 
     @Slot(str, int)
     def _on_task_progress(self, task_id: str, percent: int):
         for item_data in self._file_items.values():
             if item_data['task_id'] == task_id:
                 item_data['widget'].set_progress(percent)
-                break
 
     @Slot(str, bool, str, str)
     def _on_task_finished(self, task_id: str, success: bool, message: str, output_path: str):
@@ -417,11 +533,12 @@ class MainWindow(QMainWindow):
                 if success:
                     item_data['widget'].set_status('✓ 完成', True)
                     item_data['widget'].set_progress(100)
+                    item_data['done'] = True
                     if output_path:
                         self._output_paths.append(output_path)
                 else:
                     item_data['widget'].set_status('✕ 失败', False)
-                break
+                # 不 break，批量任务多个文件共享同一 task_id
 
         if not success:
             self.statusBar().showMessage(f'转换失败: {message}')

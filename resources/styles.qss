@@ -31,13 +31,13 @@ QTabWidget::pane {
     border: 1px solid #313244;
     border-radius: 6px;
     background-color: #181825;
-    padding: 4px;
+    padding: 2px;
 }
 
 QTabBar::tab {
     background-color: #313244;
     color: #a6adc8;
-    padding: 8px 20px;
+    padding: 6px 20px;
     margin-right: 2px;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
@@ -86,11 +86,28 @@ QSpinBox {
     background-color: #313244;
     border: 1px solid #45475a;
     border-radius: 6px;
-    padding: 6px 8px;
+    padding: 4px 6px;
     color: #cdd6f4;
+    font-size: 10pt;
 }
 
 QSpinBox:hover {
+    border-color: #89b4fa;
+}
+
+#dpiBtn {
+    background-color: #45475a;
+    border: 1px solid #585b70;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #cdd6f4;
+    padding: 0;
+}
+
+#dpiBtn:hover {
+    background-color: #89b4fa;
+    color: #1e1e2e;
     border-color: #89b4fa;
 }
 
@@ -289,17 +306,19 @@ QPushButton:disabled {
 }
 
 #removeBtn {
-    background-color: transparent;
-    border: none;
-    color: #6c7086;
-    font-size: 14px;
+    background-color: #45475a;
+    border: 1px solid #585b70;
+    color: #f38ba8;
+    font-size: 16px;
     font-weight: bold;
     border-radius: 14px;
+    padding: 0;
 }
 
 #removeBtn:hover {
     background-color: #f38ba8;
     color: #1e1e2e;
+    border-color: #f38ba8;
 }
 
 #outputBtn {
@@ -385,24 +404,26 @@ QMessageBox QPushButton {
 
 /* ===== 复选框 ===== */
 QCheckBox {
-    font-size: 12px;
+    font-size: 13px;
     color: #a6adc8;
-    spacing: 6px;
+    spacing: 8px;
 }
 
 QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border: 1px solid #45475a;
-    border-radius: 3px;
-    background-color: #313244;
+    width: 20px;
+    height: 20px;
+    border: none;
+    image: url(resources/icons/checkbox_unchecked_dark.svg);
 }
 
 QCheckBox::indicator:checked {
-    background-color: #89b4fa;
-    border-color: #89b4fa;
+    image: url(resources/icons/checkbox_checked_dark.svg);
 }
 
 QCheckBox::indicator:hover {
-    border-color: #89b4fa;
+    image: url(resources/icons/checkbox_unchecked_dark.svg);
+}
+
+QCheckBox::indicator:checked:hover {
+    image: url(resources/icons/checkbox_checked_dark.svg);
 }
