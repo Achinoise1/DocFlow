@@ -1,5 +1,6 @@
 """主窗口 - DocFlow 应用的核心界面"""
 import os
+import sys
 import uuid
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
@@ -578,7 +579,11 @@ class MainWindow(QMainWindow):
     # ===== 主题切换 =====
 
     def _apply_theme(self, theme_name: str):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 6.x onedir: sys._MEIPASS 指向 _internal/ 目录
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if theme_name == 'dark':
             qss_file = os.path.join(base_dir, 'resources', 'styles.qss')
         else:
@@ -586,7 +591,13 @@ class MainWindow(QMainWindow):
 
         if os.path.exists(qss_file):
             with open(qss_file, 'r', encoding='utf-8') as f:
-                QApplication.instance().setStyleSheet(f.read())
+                qss_content = f.read()
+            # 将 QSS 中的相对 url() 路径替换为绝对路径
+            # Qt 解析 url() 时以 CWD 为基准，打包后 CWD 不含 resources/，需手动修正
+            if getattr(sys, 'frozen', False):
+                resources_dir = os.path.join(base_dir, 'resources').replace('\\', '/')
+                qss_content = qss_content.replace('url(resources/', f'url({resources_dir}/')
+            QApplication.instance().setStyleSheet(qss_content)
 
         self._current_theme = theme_name
         self._settings.setValue('theme', theme_name)
