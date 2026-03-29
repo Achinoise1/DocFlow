@@ -28,6 +28,14 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(800, 600)
         self.resize(900, 680)
 
+        # 设置窗口图标
+        if getattr(sys, 'frozen', False):
+            icon_path = os.path.join(sys._MEIPASS, 'resources', 'icons', 'app_icon.svg')
+        else:
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'resources', 'icons', 'app_icon.svg')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         # 任务管理器
         self.task_manager = TaskManager(self)
         self.task_manager.task_started.connect(self._on_task_started)
@@ -108,6 +116,21 @@ class MainWindow(QMainWindow):
         self.drop_zone.mousePressEvent = lambda e: self._browse_files()
         main_layout.addWidget(self.drop_zone)
 
+        # 拖拽区下方：快捷选择按钮行
+        quick_bar = QHBoxLayout()
+        quick_bar.setContentsMargins(0, 0, 0, 0)
+        quick_bar.setSpacing(8)
+        browse_files_btn = QPushButton('📄 选择文件')
+        browse_files_btn.setObjectName('outputBtn')
+        browse_files_btn.clicked.connect(self._browse_files)
+        browse_dir_btn = QPushButton('📁 选择目录')
+        browse_dir_btn.setObjectName('outputBtn')
+        browse_dir_btn.clicked.connect(self._browse_directory)
+        quick_bar.addWidget(browse_files_btn)
+        quick_bar.addWidget(browse_dir_btn)
+        quick_bar.addStretch()
+        main_layout.addLayout(quick_bar)
+
         # ===== 文件列表区域 =====
         file_list_frame = QFrame()
         file_list_frame.setObjectName('fileListFrame')
@@ -184,6 +207,9 @@ class MainWindow(QMainWindow):
 
         # ===== 状态栏 =====
         self.statusBar().showMessage('就绪')
+
+        # 初始化拖拽区域提示文字
+        self._on_conversion_type_changed()
 
     def _create_tab_page(self, title: str, tab_type: str) -> QWidget:
         """创建一个功能Tab页面"""
@@ -264,8 +290,22 @@ class MainWindow(QMainWindow):
         is_pdf_to_image = combo and combo.currentData() == 'pdf_to_image'
         for w in self._pdf_image_widgets:
             w.setVisible(is_pdf_to_image)
+    # 每种转换类型对应的拖拽区提示文字
+    _HINT_MAP = {
+        'word_to_pdf':    '支持 Word 文件（.doc、.docx）',
+        'ppt_to_pdf':     '支持 PPT 文件（.ppt、.pptx）',
+        'pdf_to_word':    '支持 PDF 文件（.pdf）',
+        'pdf_to_ppt':     '支持 PDF 文件（.pdf）',
+        'pdf_to_image':   '支持 PDF 文件（.pdf）',
+        'images_to_pdf':  '支持图片文件（.jpg、.jpeg、.png）',
+        'images_to_word': '支持图片文件（.jpg、.jpeg、.png）',
+    }
+
     def _on_conversion_type_changed(self, _=None):
-        """切换转换类型时自动剔除列表中不兼容的文件"""
+        """切换转换类型时：更新提示文字、剔除不兼容文件"""
+        conversion_type = self._get_current_conversion_type()
+        hint = self._HINT_MAP.get(conversion_type, '支持 Word、PPT、PDF、图片文件')
+        self.drop_zone.set_hint(hint)
         self._filter_files_for_current_type()
 
     def _filter_files_for_current_type(self):
@@ -298,13 +338,42 @@ class MainWindow(QMainWindow):
         if files:
             self._add_files(files)
 
-    def _on_files_dropped(self, files: list):
-        self._add_files(files)
+    def _browse_directory(self):
+        """打开目录选择对话框，自动筛选匹配文件"""
+        dir_path = QFileDialog.getExistingDirectory(self, '选择目录')
+        if dir_path:
+            self._add_files([dir_path])
+
+    def _on_files_dropped(self, paths: list):
+        self._add_files(paths)
+
+    def _collect_files_from_dir(self, dir_path: str, accepted_exts: list) -> list:
+        """递归扫描目录，返回所有符合当前转换类型的文件"""
+        result = []
+        for root, _, files in os.walk(dir_path):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                if not accepted_exts or get_file_ext(fpath) in accepted_exts:
+                    result.append(fpath)
+        return result
 
     def _add_files(self, file_paths: list):
-        """添加文件到列表，上传时立即校验类型"""
+        """添加文件到列表，上传时立即校验类型；目录路径会被自动展开"""
         conversion_type = self._get_current_conversion_type()
         accepted_exts = self._get_accepted_extensions(conversion_type)
+
+        # 展开目录：扫描其中符合类型的文件
+        expanded = []
+        for p in file_paths:
+            if os.path.isdir(p):
+                found = self._collect_files_from_dir(p, accepted_exts)
+                if found:
+                    expanded.extend(found)
+                else:
+                    self.statusBar().showMessage(f'目录中未找到符合当前转换类型的文件', 4000)
+            else:
+                expanded.append(p)
+        file_paths = expanded
 
         rejected = []
         for path in file_paths:
