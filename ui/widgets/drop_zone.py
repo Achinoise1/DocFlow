@@ -40,6 +40,10 @@ class DropZone(QFrame):
         layout.addWidget(self.text_label)
         layout.addWidget(self.hint_label)
 
+    def set_hint(self, hint_text: str):
+        """更新底部提示文字"""
+        self.hint_label.setText(hint_text)
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -56,14 +60,16 @@ class DropZone(QFrame):
         self.setProperty('dragOver', False)
         self.style().polish(self)
 
-        files = []
+        paths = []
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if os.path.isfile(path) and is_supported_file(path):
-                files.append(path)
+            if os.path.isdir(path):
+                paths.append(path)          # 目录：交给主窗口筛选展开
+            elif os.path.isfile(path) and is_supported_file(path):
+                paths.append(path)
 
-        if files:
-            self.files_dropped.emit(files)
+        if paths:
+            self.files_dropped.emit(paths)
             event.acceptProposedAction()
         else:
             event.ignore()
