@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, Slot, QSettings
 from PySide6.QtGui import QIcon
 
 from ui.widgets.drop_zone import DropZone, FileListItem
+from ui.widgets.help_dialog import HelpDialog
 from core.task_manager import TaskManager
 from utils.file_utils import (
     get_file_type, get_file_ext, get_output_path, is_supported_file,
@@ -83,6 +84,13 @@ class MainWindow(QMainWindow):
         self.theme_btn.setToolTip('切换主题')
         self.theme_btn.clicked.connect(self._toggle_theme)
         title_layout.addWidget(self.theme_btn)
+
+        self.help_btn = QPushButton('❓')
+        self.help_btn.setObjectName('themeBtn')
+        self.help_btn.setFixedSize(36, 36)
+        self.help_btn.setToolTip('使用指南')
+        self.help_btn.clicked.connect(self._show_help)
+        title_layout.addWidget(self.help_btn)
 
         main_layout.addLayout(title_layout)
 
@@ -671,6 +679,10 @@ class MainWindow(QMainWindow):
         self._current_theme = theme_name
         self._settings.setValue('theme', theme_name)
         self._update_theme_button()
+
+    def _show_help(self):
+        dlg = HelpDialog(self)
+        dlg.exec()
 
     def _toggle_theme(self):
         new_theme = 'dark' if self._current_theme == 'light' else 'light'

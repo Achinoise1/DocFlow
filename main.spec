@@ -2,9 +2,7 @@
 # DocFlow - PyInstaller 打包配置
 # 使用 onefile 模式（单个 exe，启动时解压到临时目录）
 #
-# 注意：pdf_to_ppt 功能依赖 poppler（pdf2image 所需），
-#       需单独安装并将 poppler/bin 加入系统 PATH，或手动添加到 binaries。
-#       下载地址：https://github.com/oschwartz10612/poppler-windows/releases
+# 注意：pdf_to_ppt / pdf_to_images 使用 PyMuPDF (fitz) 渲染，已内置于 exe，无需安装 Poppler。
 
 a = Analysis(
     ['main.py'],
@@ -12,6 +10,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('resources', 'resources'),
+        ('doc/image', 'doc/image'),
     ],
     hiddenimports=[
         # PyMuPDF
@@ -19,9 +18,6 @@ a = Analysis(
         'fitz.utils',
         # pdf2docx
         'pdf2docx',
-        # pdf2image
-        'pdf2image',
-        'pdf2image.exceptions',
         # python-pptx
         'pptx',
         'pptx.util',
