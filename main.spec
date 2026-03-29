@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # DocFlow - PyInstaller 打包配置
-# 使用 onedir 模式（比 onefile 更稳定，尤其是 PySide6）
+# 使用 onefile 模式（单个 exe，启动时解压到临时目录）
 #
 # 注意：pdf_to_ppt 功能依赖 poppler（pdf2image 所需），
 #       需单独安装并将 poppler/bin 加入系统 PATH，或手动添加到 binaries。
@@ -71,29 +71,20 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='DocFlow',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
+    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='DocFlow',
 )
