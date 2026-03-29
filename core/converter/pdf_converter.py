@@ -24,25 +24,27 @@ def pdf_to_word(input_path: str, output_path: str) -> str:
 
 
 def pdf_to_ppt(input_path: str, output_path: str) -> str:
-    """PDF 转 PPT (.pptx) - 将每页转为图片再插入PPT"""
+    """PDF 转 PPT (.pptx) - 使用 PyMuPDF 渲染每页为图片再插入PPT，无需 Poppler"""
     try:
-        from pdf2image import convert_from_path
+        import fitz  # PyMuPDF
         from pptx import Presentation
         from pptx.util import Inches
         import tempfile
 
-        images = convert_from_path(input_path, dpi=200)
+        doc = fitz.open(input_path)
         prs = Presentation()
         # 设置为宽屏16:9
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
 
         blank_layout = prs.slide_layouts[6]  # 空白布局
+        mat = fitz.Matrix(200 / 72, 200 / 72)  # 200 dpi
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            for i, img in enumerate(images):
+            for i, page in enumerate(doc):
+                pix = page.get_pixmap(matrix=mat, alpha=False)
                 img_path = os.path.join(tmp_dir, f'page_{i}.png')
-                img.save(img_path, 'PNG')
+                pix.save(img_path)
 
                 slide = prs.slides.add_slide(blank_layout)
                 slide.shapes.add_picture(
@@ -52,6 +54,7 @@ def pdf_to_ppt(input_path: str, output_path: str) -> str:
                 )
 
             prs.save(output_path)
+        doc.close()
 
         log_conversion(input_path, output_path, True)
         return output_path
@@ -62,27 +65,37 @@ def pdf_to_ppt(input_path: str, output_path: str) -> str:
 
 
 def pdf_to_images(input_path: str, output_dir: str, fmt: str = 'png', dpi: int = 200) -> list:
-    """PDF 转图片，每页一张；多页时在 output_dir 下创建以PDF命名的子目录"""
+    """PDF 转图片，每页一张；多页时在 output_dir 下创建以PDF命名的子目录。使用 PyMuPDF，无需 Poppler"""
     try:
-        from pdf2image import convert_from_path
+        import fitz  # PyMuPDF
 
-        images = convert_from_path(input_path, dpi=dpi)
+        doc = fitz.open(input_path)
         base_name = os.path.splitext(os.path.basename(input_path))[0]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
 
         # 多页创建子目录，单页直接放在 output_dir
-        if len(images) > 1:
+        if len(doc) > 1:
             save_dir = os.path.join(output_dir, base_name)
             os.makedirs(save_dir, exist_ok=True)
         else:
             save_dir = output_dir
 
         output_paths = []
-        for i, img in enumerate(images):
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(matrix=mat, alpha=False)
             out_name = f'{base_name}_page_{i + 1}.{fmt}'
             out_path = os.path.join(save_dir, out_name)
-            img.save(out_path, fmt.upper() if fmt != 'jpg' else 'JPEG')
+            if fmt.lower() == 'png':
+                pix.save(out_path)
+            else:
+                # jpg / jpeg：通过 PIL 控制压缩质量
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(pix.tobytes('png')))
+                img.save(out_path, 'JPEG', quality=92)
             output_paths.append(out_path)
 
+        doc.close()
         log_conversion(input_path, save_dir, True)
         return output_paths
     except Exception as e:
