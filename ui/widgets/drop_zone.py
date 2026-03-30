@@ -1,12 +1,30 @@
 """自定义UI组件 - 拖拽区域、文件列表项等"""
 import os
+import sys
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QProgressBar,
-    QPushButton, QListWidget, QListWidgetItem, QAbstractItemView,
-    QFrame
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout,
+    QPushButton, QFrame
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
+
+
+def _get_icon_path(filename: str) -> str:
+    """返回 resources/icons/<filename> 的绝对路径，兼容 PyInstaller 打包。"""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        # ui/widgets/drop_zone.py -> ../../.. = 项目根目录
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, 'resources', 'icons', filename)
+
+
+_FILE_TYPE_ICONS = {
+    'word': _get_icon_path('word.svg'),
+    'ppt':  _get_icon_path('ppt.svg'),
+    'pdf':  _get_icon_path('pdf.svg'),
+    'image': _get_icon_path('image.svg'),
+}
 
 from utils.file_utils import is_supported_file, get_file_type, get_friendly_size
 
@@ -76,7 +94,7 @@ class DropZone(QFrame):
 
 
 class FileListItem(QWidget):
-    """文件列表中的单个文件项"""
+    """文件列表中的单个文件项（纯展示，不含任务状态）"""
     remove_clicked = Signal(str)
 
     def __init__(self, file_path: str, parent=None):
@@ -89,12 +107,17 @@ class FileListItem(QWidget):
 
         # 文件类型图标
         file_type = get_file_type(file_path)
-        icon_map = {
-            'word': '📄', 'ppt': '📊', 'pdf': '📕', 'image': '🖼️'
-        }
-        icon_label = QLabel(icon_map.get(file_type, '📎'))
-        icon_label.setFixedWidth(30)
+        icon_label = QLabel()
+        icon_label.setFixedSize(28, 28)
+        icon_label.setAlignment(Qt.AlignCenter)
         icon_label.setObjectName('fileIcon')
+        icon_path = _FILE_TYPE_ICONS.get(file_type)
+        if icon_path:
+            pixmap = QPixmap(icon_path)
+            if not pixmap.isNull():
+                icon_label.setPixmap(
+                    pixmap.scaled(22, 22, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
 
         # 文件信息
         info_layout = QVBoxLayout()
@@ -106,24 +129,6 @@ class FileListItem(QWidget):
         info_layout.addWidget(name_label)
         info_layout.addWidget(size_label)
 
-        # 状态和进度
-        self.status_label = QLabel('等待中')
-        self.status_label.setObjectName('fileStatus')
-        self.status_label.setFixedWidth(80)
-        self.status_label.setAlignment(Qt.AlignCenter)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedWidth(120)
-        self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setObjectName('fileProgress')
-
-        self.percent_label = QLabel('0%')
-        self.percent_label.setObjectName('percentLabel')
-        self.percent_label.setFixedWidth(40)
-        self.percent_label.setAlignment(Qt.AlignCenter)
-
         # 删除按钮
         remove_btn = QPushButton('×')
         remove_btn.setObjectName('removeBtn')
@@ -132,31 +137,4 @@ class FileListItem(QWidget):
 
         layout.addWidget(icon_label)
         layout.addLayout(info_layout, 1)
-        layout.addWidget(self.progress_bar)
-        layout.addWidget(self.percent_label)
-        layout.addWidget(self.status_label)
         layout.addWidget(remove_btn)
-
-    def set_status(self, status: str, success: bool = True):
-        self.status_label.setText(status)
-        if success:
-            self.status_label.setProperty('state', 'success')
-        else:
-            self.status_label.setProperty('state', 'error')
-        self.status_label.style().polish(self.status_label)
-
-    def set_progress(self, value: int):
-        self.progress_bar.setValue(value)
-        self.percent_label.setText(f'{value}%')
-
-    def set_waiting(self):
-        self.status_label.setText('等待中')
-        self.status_label.setProperty('state', 'waiting')
-        self.status_label.style().polish(self.status_label)
-        self.progress_bar.setValue(0)
-        self.percent_label.setText('0%')
-
-    def set_converting(self):
-        self.status_label.setText('转换中...')
-        self.status_label.setProperty('state', 'converting')
-        self.status_label.style().polish(self.status_label)

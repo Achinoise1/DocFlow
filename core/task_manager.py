@@ -64,9 +64,17 @@ class BatchImageTask(QRunnable):
         self.conversion_type = conversion_type
         self.output_path = output_path
         self.signals = TaskSignals()
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
 
     @Slot()
     def run(self):
+        if self._cancelled:
+            self.signals.finished.emit(self.task_id, False, '已取消', '')
+            return
+
         self.signals.started.emit(self.task_id)
         self.signals.progress.emit(self.task_id, 10)
 
@@ -97,7 +105,8 @@ class TaskManager(QObject):
         self.thread_pool = QThreadPool.globalInstance()
         self.thread_pool.setMaxThreadCount(4)
         self._tasks = {}
-        self._pending_count = 0
+        self._active_count = 0      # 当前「有效」任务数（不含已取消）
+        self._cancelled_ids = set() # 已取消但后台仍在跑的任务 ID，信号会被静默丢弃
 
     def submit_task(self, task_id: str, input_path: str, conversion_type: str,
                     output_dir: str = None, options: dict = None):
@@ -108,7 +117,7 @@ class TaskManager(QObject):
         task.signals.finished.connect(self._on_task_finished)
 
         self._tasks[task_id] = task
-        self._pending_count += 1
+        self._active_count += 1
         self.thread_pool.start(task)
 
     def submit_batch_image_task(self, task_id: str, image_paths: list,
@@ -120,26 +129,40 @@ class TaskManager(QObject):
         task.signals.finished.connect(self._on_task_finished)
 
         self._tasks[task_id] = task
-        self._pending_count += 1
+        self._active_count += 1
         self.thread_pool.start(task)
 
     def cancel_all(self):
-        """取消所有任务"""
-        for task in self._tasks.values():
+        """取消所有任务。
+
+        已进入线程池的任务无法强制终止，但会被加入 _cancelled_ids，
+        后续信号（started/progress/finished）一律静默丢弃，不再更新 UI。
+        """
+        for task_id, task in self._tasks.items():
             if hasattr(task, 'cancel'):
                 task.cancel()
+            self._cancelled_ids.add(task_id)
         self._tasks.clear()
-        self._pending_count = 0
+        self._active_count = 0  # 有效任务清零；后台线程属于「排水」阶段
 
     def _on_task_started(self, task_id: str):
+        if task_id in self._cancelled_ids:
+            return  # 任务已取消，静默丢弃
         self.task_started.emit(task_id)
 
     def _on_task_progress(self, task_id: str, percent: int):
+        if task_id in self._cancelled_ids:
+            return  # 任务已取消，静默丢弃
         self.task_progress.emit(task_id, percent)
 
     def _on_task_finished(self, task_id: str, success: bool, message: str, output_path: str):
+        if task_id in self._cancelled_ids:
+            # 后台「排水」任务完成，静默丢弃，不更新 UI 也不触发 all_tasks_done
+            self._cancelled_ids.discard(task_id)
+            return
+
         self.task_finished.emit(task_id, success, message, output_path)
-        self._pending_count -= 1
-        if self._pending_count <= 0:
-            self._pending_count = 0
+        self._active_count -= 1
+        if self._active_count <= 0:
+            self._active_count = 0
             self.all_tasks_done.emit()

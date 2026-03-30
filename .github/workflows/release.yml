@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'V*'
 
 # 授予写权限以创建 Release
 permissions:
