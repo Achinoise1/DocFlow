@@ -1,5 +1,20 @@
 ## 更新日志
 
+### chore: main_window 拆分
+
+- 新建转换路由调度器
+- task_manager 接入调度器
+- 新建主题管理器
+- main_window 接入主题管理器
+- 新建文件列表组件（骨架）
+- main_window 接入文件列表组件
+
+### chore: 新建注册表注入，清理冗余代码
+
+- 新建转换类型注册表
+- main_window 切换读取注册表
+- file_utils 清理冗余常量
+
 ### chore: 补充指南
 
 **功能**

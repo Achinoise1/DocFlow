@@ -4,10 +4,7 @@ import traceback
 from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool, Slot
 
 from utils.logger import logger
-from utils.file_utils import get_file_ext, get_output_path
-from core.converter.office_converter import word_to_pdf, ppt_to_pdf
-from core.converter.pdf_converter import pdf_to_word, pdf_to_ppt, pdf_to_images
-from core.converter.image_converter import images_to_pdf, images_to_word
+from core.converter.dispatcher import dispatch, dispatch_batch
 
 
 class TaskSignals(QObject):
@@ -53,49 +50,7 @@ class ConvertTask(QRunnable):
             self.signals.finished.emit(self.task_id, False, str(e), '')
 
     def _do_convert(self) -> str:
-        ext = get_file_ext(self.input_path)
-
-        if self.conversion_type == 'to_pdf':
-            return self._convert_to_pdf(ext)
-        elif self.conversion_type == 'word_to_pdf':
-            output = get_output_path(self.input_path, '.pdf', self.output_dir)
-            from core.converter.office_converter import word_to_pdf
-            return word_to_pdf(self.input_path, output)
-        elif self.conversion_type == 'ppt_to_pdf':
-            output = get_output_path(self.input_path, '.pdf', self.output_dir)
-            from core.converter.office_converter import ppt_to_pdf
-            return ppt_to_pdf(self.input_path, output)
-        elif self.conversion_type == 'pdf_to_word':
-            output = get_output_path(self.input_path, '.docx', self.output_dir)
-            return pdf_to_word(self.input_path, output)
-        elif self.conversion_type == 'pdf_to_ppt':
-            output = get_output_path(self.input_path, '.pptx', self.output_dir)
-            return pdf_to_ppt(self.input_path, output)
-        elif self.conversion_type == 'pdf_to_image':
-            fmt = self.options.get('format', 'png')
-            dpi = self.options.get('dpi', 200)
-            results = pdf_to_images(self.input_path, self.output_dir, fmt, dpi)
-            if not results:
-                return ''
-            # 多页时返回子目录路径（方便直接用 Explorer 打开），单页返回文件路径
-            return os.path.dirname(results[0]) if len(results) > 1 else results[0]
-        elif self.conversion_type == 'image_to_pdf':
-            output = get_output_path(self.input_path, '.pdf', self.output_dir)
-            return images_to_pdf([self.input_path], output)
-        elif self.conversion_type == 'image_to_word':
-            output = get_output_path(self.input_path, '.docx', self.output_dir)
-            return images_to_word([self.input_path], output)
-        else:
-            raise RuntimeError(f'不支持的转换类型: {self.conversion_type}')
-
-    def _convert_to_pdf(self, ext: str) -> str:
-        output = get_output_path(self.input_path, '.pdf', self.output_dir)
-        if ext in ('.doc', '.docx'):
-            return word_to_pdf(self.input_path, output)
-        elif ext in ('.ppt', '.pptx'):
-            return ppt_to_pdf(self.input_path, output)
-        else:
-            raise RuntimeError(f'文件格式不支持转换为PDF: {ext}')
+        return dispatch(self.conversion_type, self.input_path, self.output_dir, self.options)
 
 
 class BatchImageTask(QRunnable):
@@ -116,12 +71,7 @@ class BatchImageTask(QRunnable):
         self.signals.progress.emit(self.task_id, 10)
 
         try:
-            if self.conversion_type == 'images_to_pdf':
-                images_to_pdf(self.image_paths, self.output_path)
-            elif self.conversion_type == 'images_to_word':
-                images_to_word(self.image_paths, self.output_path)
-            else:
-                raise RuntimeError(f'不支持的批量转换类型: {self.conversion_type}')
+            dispatch_batch(self.conversion_type, self.image_paths, self.output_path)
 
             self.signals.progress.emit(self.task_id, 100)
             self.signals.finished.emit(

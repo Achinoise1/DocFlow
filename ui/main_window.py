@@ -4,18 +4,20 @@ import sys
 import uuid
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QPushButton, QLabel, QComboBox, QFileDialog, QScrollArea,
-    QFrame, QMessageBox, QSpinBox, QSplitter, QCheckBox, QApplication
+    QPushButton, QLabel, QComboBox, QFileDialog,
+    QFrame, QMessageBox, QSpinBox, QCheckBox
 )
 from PySide6.QtCore import Qt, Slot, QSettings
 from PySide6.QtGui import QIcon
 
-from ui.widgets.drop_zone import DropZone, FileListItem
+from ui.widgets.drop_zone import DropZone
+from ui.widgets.file_list_widget import FileListWidget
 from ui.widgets.help_dialog import HelpDialog
 from core.task_manager import TaskManager
+from core.conversion_registry import get_by_id, get_by_tab
+from ui.theme_manager import ThemeManager
 from utils.file_utils import (
-    get_file_type, get_file_ext, get_output_path, is_supported_file,
-    SUPPORTED_EXTENSIONS
+    get_file_type, get_file_ext, get_output_path, is_supported_file
 )
 from utils.logger import logger
 
@@ -44,14 +46,13 @@ class MainWindow(QMainWindow):
         self.task_manager.task_finished.connect(self._on_task_finished)
         self.task_manager.all_tasks_done.connect(self._on_all_done)
 
-        # 文件列表数据: {file_path: {'widget': FileListItem, 'task_id': str, 'done': bool}}
-        self._file_items = {}
         self._output_dir = None
         self._output_paths = []
 
         # 用户设置
         self._settings = QSettings('DocFlow', 'DocFlow')
-        self._current_theme = self._settings.value('theme', 'light')
+        self._theme_manager = ThemeManager(self._settings)
+        self._current_theme = self._theme_manager.load_saved_theme()
 
         self._init_ui()
         self._apply_theme(self._current_theme)
@@ -157,21 +158,9 @@ class MainWindow(QMainWindow):
         file_header.addWidget(clear_btn)
         file_list_layout.addLayout(file_header)
 
-        # 可滚动文件列表
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(120)
-        scroll_area.setMaximumHeight(250)
-        scroll_area.setObjectName('fileScrollArea')
-
-        self.file_list_container = QWidget()
-        self.file_list_layout = QVBoxLayout(self.file_list_container)
-        self.file_list_layout.setSpacing(4)
-        self.file_list_layout.setContentsMargins(4, 4, 4, 4)
-        self.file_list_layout.addStretch()
-
-        scroll_area.setWidget(self.file_list_container)
-        file_list_layout.addWidget(scroll_area)
+        self.file_list_widget = FileListWidget()
+        self.file_list_widget.file_count_changed.connect(self._update_file_count)
+        file_list_layout.addWidget(self.file_list_widget)
 
         main_layout.addWidget(file_list_frame)
 
@@ -233,16 +222,8 @@ class MainWindow(QMainWindow):
         combo.setObjectName(f'combo_{tab_type}')
         combo.setMinimumWidth(200)
 
-        if tab_type == 'pdf':
-            combo.addItem('PDF → Word', 'pdf_to_word')
-            combo.addItem('PDF → PPT', 'pdf_to_ppt')
-            combo.addItem('PDF → 图片', 'pdf_to_image')
-        elif tab_type == 'image':
-            combo.addItem('图片 → PDF（合并）', 'images_to_pdf')
-            combo.addItem('图片 → Word', 'images_to_word')
-        elif tab_type == 'doc':
-            combo.addItem('Word → PDF', 'word_to_pdf')
-            combo.addItem('PPT → PDF', 'ppt_to_pdf')
+        for entry in get_by_tab(tab_type):
+            combo.addItem(entry['label'], entry['id'])
 
         layout.addWidget(label)
         layout.addWidget(combo)
@@ -298,27 +279,17 @@ class MainWindow(QMainWindow):
         is_pdf_to_image = combo and combo.currentData() == 'pdf_to_image'
         for w in self._pdf_image_widgets:
             w.setVisible(is_pdf_to_image)
-    # 每种转换类型对应的拖拽区提示文字
-    _HINT_MAP = {
-        'word_to_pdf':    '支持 Word 文件（.doc、.docx）',
-        'ppt_to_pdf':     '支持 PPT 文件（.ppt、.pptx）',
-        'pdf_to_word':    '支持 PDF 文件（.pdf）',
-        'pdf_to_ppt':     '支持 PDF 文件（.pdf）',
-        'pdf_to_image':   '支持 PDF 文件（.pdf）',
-        'images_to_pdf':  '支持图片文件（.jpg、.jpeg、.png）',
-        'images_to_word': '支持图片文件（.jpg、.jpeg、.png）',
-    }
-
     def _on_conversion_type_changed(self, _=None):
         """切换转换类型时：更新提示文字、剔除不兼容文件"""
         conversion_type = self._get_current_conversion_type()
-        hint = self._HINT_MAP.get(conversion_type, '支持 Word、PPT、PDF、图片文件')
+        entry = get_by_id(conversion_type)
+        hint = entry['hint_text'] if entry else '支持 Word、PPT、PDF、图片文件'
         self.drop_zone.set_hint(hint)
         self._filter_files_for_current_type()
 
     def _filter_files_for_current_type(self):
         """剔除文件列表中不符合当前转换类型的文件"""
-        if not self._file_items:
+        if not self.file_list_widget.file_paths:
             return
         conversion_type = self._get_current_conversion_type()
         accepted_exts = self._get_accepted_extensions(conversion_type)
@@ -326,15 +297,16 @@ class MainWindow(QMainWindow):
             return
 
         to_remove = [
-            path for path in list(self._file_items.keys())
+            path for path in self.file_list_widget.file_paths
             if get_file_ext(path) not in accepted_exts
         ]
         for path in to_remove:
-            self._remove_file(path)
+            self.file_list_widget.remove_file(path)
 
         if to_remove:
             names = ', '.join(os.path.basename(p) for p in to_remove)
             self.statusBar().showMessage(f'已移除不匹配的文件：{names}', 4000)
+
     # ===== 文件操作 =====
 
     def _browse_files(self):
@@ -355,83 +327,25 @@ class MainWindow(QMainWindow):
     def _on_files_dropped(self, paths: list):
         self._add_files(paths)
 
-    def _collect_files_from_dir(self, dir_path: str, accepted_exts: list) -> list:
-        """递归扫描目录，返回所有符合当前转换类型的文件"""
-        result = []
-        for root, _, files in os.walk(dir_path):
-            for fname in files:
-                fpath = os.path.join(root, fname)
-                if not accepted_exts or get_file_ext(fpath) in accepted_exts:
-                    result.append(fpath)
-        return result
-
     def _add_files(self, file_paths: list):
-        """添加文件到列表，上传时立即校验类型；目录路径会被自动展开"""
+        """添加文件到列表，校验类型；目录路径会被自动展开"""
         conversion_type = self._get_current_conversion_type()
         accepted_exts = self._get_accepted_extensions(conversion_type)
-
-        # 展开目录：扫描其中符合类型的文件
-        expanded = []
-        for p in file_paths:
-            if os.path.isdir(p):
-                found = self._collect_files_from_dir(p, accepted_exts)
-                if found:
-                    expanded.extend(found)
-                else:
-                    self.statusBar().showMessage(f'目录中未找到符合当前转换类型的文件', 4000)
-            else:
-                expanded.append(p)
-        file_paths = expanded
-
-        rejected = []
-        for path in file_paths:
-            if path in self._file_items:
-                continue
-
-            # 上传时立即校验，不匹配则拒绝
-            if accepted_exts:
-                ext = get_file_ext(path)
-                if ext not in accepted_exts:
-                    rejected.append(os.path.basename(path))
-                    continue
-
-            item_widget = FileListItem(path)
-            item_widget.remove_clicked.connect(self._remove_file)
-
-            # 插入到 stretch 之前
-            idx = self.file_list_layout.count() - 1
-            self.file_list_layout.insertWidget(idx, item_widget)
-
-            self._file_items[path] = {
-                'widget': item_widget,
-                'task_id': None,
-                'done': False
-            }
-
+        rejected = self.file_list_widget.add_files(file_paths, accepted_exts)
         if rejected:
             QMessageBox.warning(
                 self, '文件类型不匹配',
                 f'以下文件与当前转换模式不匹配，已忽略：\n' + '\n'.join(rejected)
             )
 
-        self._update_file_count()
-
-    def _remove_file(self, file_path: str):
-        """从列表中移除文件"""
-        if file_path in self._file_items:
-            widget = self._file_items[file_path]['widget']
-            self.file_list_layout.removeWidget(widget)
-            widget.deleteLater()
-            del self._file_items[file_path]
-            self._update_file_count()
-
     def _clear_files(self):
         """清空文件列表"""
-        for path in list(self._file_items.keys()):
-            self._remove_file(path)
+        self.file_list_widget.clear_files()
 
-    def _update_file_count(self):
-        self.file_count_label.setText(f'文件列表 ({len(self._file_items)})')
+    def _update_file_count(self, count: int = None):
+        if count is None:
+            count = len(self.file_list_widget.file_paths)
+        self.file_count_label.setText(f'文件列表 ({count})')
 
     def _select_output_dir(self):
         """选择输出目录"""
@@ -469,21 +383,12 @@ class MainWindow(QMainWindow):
 
     def _get_accepted_extensions(self, conversion_type: str) -> list:
         """根据转换类型获取允许的输入文件扩展名"""
-        ext_map = {
-            'word_to_pdf': ['.doc', '.docx'],
-            'ppt_to_pdf':  ['.ppt', '.pptx'],
-            'to_pdf':      ['.doc', '.docx', '.ppt', '.pptx'],
-            'pdf_to_word': ['.pdf'],
-            'pdf_to_ppt':  ['.pdf'],
-            'pdf_to_image': ['.pdf'],
-            'images_to_pdf': ['.jpg', '.jpeg', '.png'],
-            'images_to_word': ['.jpg', '.jpeg', '.png'],
-        }
-        return ext_map.get(conversion_type, [])
+        entry = get_by_id(conversion_type)
+        return entry['input_exts'] if entry else []
 
     def _start_conversion(self):
         """开始转换"""
-        if not self._file_items:
+        if not self.file_list_widget.file_paths:
             QMessageBox.warning(self, '提示', '请先添加文件')
             return
 
@@ -502,18 +407,16 @@ class MainWindow(QMainWindow):
         if conversion_type == 'pdf_to_image':
             options = self._get_pdf_to_image_options()
 
-        # 只处理未完成的文件
-        pending = {}
+        # 只处理未完成的文件，类型不匹配则跳过
+        pending_paths = []
         skipped = []
-        for p, d in self._file_items.items():
-            if d['done']:
-                continue
+        for p in self.file_list_widget.pending_paths:
             ext = get_file_ext(p)
             if accepted_exts and ext not in accepted_exts:
                 skipped.append(os.path.basename(p))
-                d['widget'].set_status('类型不匹配', False)
+                self.file_list_widget.mark_skipped(p)
             else:
-                pending[p] = d
+                pending_paths.append(p)
 
         if skipped:
             QMessageBox.warning(
@@ -521,7 +424,7 @@ class MainWindow(QMainWindow):
                 f'以下文件不支持当前转换类型，已跳过：\n{", ".join(skipped)}'
             )
 
-        if not pending:
+        if not pending_paths:
             if not skipped:
                 QMessageBox.information(self, '提示', '所有文件已转换完成，请添加新文件')
             return
@@ -530,11 +433,9 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(True)
         self.statusBar().showMessage('正在转换...')
 
-        for path, item_data in pending.items():
+        for path in pending_paths:
             task_id = str(uuid.uuid4())[:8]
-            item_data['task_id'] = task_id
-            item_data['widget'].set_waiting()
-
+            self.file_list_widget.set_task_id(path, task_id)
             self.task_manager.submit_task(
                 task_id, path, conversion_type,
                 self._output_dir, options
@@ -542,8 +443,10 @@ class MainWindow(QMainWindow):
 
     def _start_batch_image_conversion(self, conversion_type: str):
         """批量图片合并转换"""
-        image_paths = [p for p, d in self._file_items.items()
-                       if get_file_type(p) == 'image' and not d['done']]
+        image_paths = [
+            p for p in self.file_list_widget.pending_paths
+            if get_file_type(p) == 'image'
+        ]
 
         if not image_paths:
             QMessageBox.warning(self, '提示', '请添加图片文件')
@@ -568,11 +471,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('正在合并...')
 
         task_id = str(uuid.uuid4())[:8]
-        # 只标记参与合并的图片文件
-        for path, item_data in self._file_items.items():
-            if path in image_paths:
-                item_data['task_id'] = task_id
-                item_data['widget'].set_waiting()
+        for path in image_paths:
+            self.file_list_widget.set_task_id(path, task_id)
 
         self.task_manager.submit_batch_image_task(
             task_id, image_paths, conversion_type, save_path
@@ -584,40 +484,24 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.statusBar().showMessage('已取消')
-
-        for item_data in self._file_items.values():
-            item_data['widget'].set_waiting()
-            item_data['done'] = False
-            item_data['task_id'] = None
+        self.file_list_widget.reset_all_tasks()
 
     # ===== 任务回调 =====
 
     @Slot(str)
     def _on_task_started(self, task_id: str):
-        for item_data in self._file_items.values():
-            if item_data['task_id'] == task_id:
-                item_data['widget'].set_converting()
+        self.file_list_widget.update_task_state(task_id, 'started')
 
     @Slot(str, int)
     def _on_task_progress(self, task_id: str, percent: int):
-        for item_data in self._file_items.values():
-            if item_data['task_id'] == task_id:
-                item_data['widget'].set_progress(percent)
+        self.file_list_widget.update_task_state(task_id, 'progress', percent=percent)
 
     @Slot(str, bool, str, str)
     def _on_task_finished(self, task_id: str, success: bool, message: str, output_path: str):
-        for item_data in self._file_items.values():
-            if item_data['task_id'] == task_id:
-                if success:
-                    item_data['widget'].set_status('✓ 完成', True)
-                    item_data['widget'].set_progress(100)
-                    item_data['done'] = True
-                    if output_path:
-                        self._output_paths.append(output_path)
-                else:
-                    item_data['widget'].set_status('✕ 失败', False)
-                # 不 break，批量任务多个文件共享同一 task_id
-
+        paths = self.file_list_widget.update_task_state(
+            task_id, 'finished', success=success, output_path=output_path
+        )
+        self._output_paths.extend(paths)
         if not success:
             self.statusBar().showMessage(f'转换失败: {message}')
 
@@ -656,28 +540,8 @@ class MainWindow(QMainWindow):
     # ===== 主题切换 =====
 
     def _apply_theme(self, theme_name: str):
-        if getattr(sys, 'frozen', False):
-            # PyInstaller 6.x onedir: sys._MEIPASS 指向 _internal/ 目录
-            base_dir = sys._MEIPASS
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if theme_name == 'dark':
-            qss_file = os.path.join(base_dir, 'resources', 'styles.qss')
-        else:
-            qss_file = os.path.join(base_dir, 'resources', 'styles_light.qss')
-
-        if os.path.exists(qss_file):
-            with open(qss_file, 'r', encoding='utf-8') as f:
-                qss_content = f.read()
-            # 将 QSS 中的相对 url() 路径替换为绝对路径
-            # Qt 解析 url() 时以 CWD 为基准，打包后 CWD 不含 resources/，需手动修正
-            if getattr(sys, 'frozen', False):
-                resources_dir = os.path.join(base_dir, 'resources').replace('\\', '/')
-                qss_content = qss_content.replace('url(resources/', f'url({resources_dir}/')
-            QApplication.instance().setStyleSheet(qss_content)
-
+        self._theme_manager.apply(theme_name)
         self._current_theme = theme_name
-        self._settings.setValue('theme', theme_name)
         self._update_theme_button()
 
     def _show_help(self):
@@ -685,13 +549,10 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _toggle_theme(self):
-        new_theme = 'dark' if self._current_theme == 'light' else 'light'
+        new_theme = self._theme_manager.toggle(self._current_theme)
         self._apply_theme(new_theme)
 
     def _update_theme_button(self):
-        if self._current_theme == 'light':
-            self.theme_btn.setText('🌙')
-            self.theme_btn.setToolTip('切换到深色主题')
-        else:
-            self.theme_btn.setText('☀️')
-            self.theme_btn.setToolTip('切换到浅色主题')
+        self.theme_btn.setText(self._theme_manager.get_button_icon(self._current_theme))
+        tooltip = '切换到深色主题' if self._current_theme == 'light' else '切换到浅色主题'
+        self.theme_btn.setToolTip(tooltip)
