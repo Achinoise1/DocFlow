@@ -43,6 +43,8 @@ a = Analysis(
         'core.converter.pdf_converter',
         'core.converter.image_converter',
         'core.converter.office_converter',
+        'core.converter._office_win',
+        'core.converter._office_unix',
         'ui',
         'ui.main_window',
         'ui.widgets',

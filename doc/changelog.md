@@ -1,5 +1,37 @@
 ## 更新日志
 
+### V0.2.2
+
+#### feat: 跨平台支持 & LibreOffice 自动安装
+
+**跨平台转换**
+- 将 `office_converter.py` 重构为平台路由层，运行时按 `sys.platform` 选择后端：
+  - Windows：`_office_win.py`（win32com 调用本机 Office / WPS，原有逻辑不变）
+  - macOS / Linux：`_office_unix.py`（LibreOffice `--headless` subprocess）
+- `dispatcher.py`、`task_manager.py` 无需任何改动，上层调用保持透明
+
+**LibreOffice 自动检测与安装**
+- 新增 `utils/libreoffice_manager.py`：
+  - `find_soffice()` 跨平台查找 LibreOffice 可执行路径（含 brew、`~/Applications`、snap/flatpak 等多候选路径）
+  - `install_auto()` 按平台依次尝试：
+    - macOS：Homebrew → 下载官方 DMG 并安装到 `~/Applications`（无需管理员权限）
+    - Linux：snap → flatpak → apt（pkexec） → dnf/yum（pkexec）
+  - 安装日志实时通过回调函数推送到 UI
+- 新增 `ui/widgets/libreoffice_setup_dialog.py` 安装引导对话框：
+  - 在 macOS/Linux 用户首次执行 Word/PPT → PDF 时自动弹出
+  - 后台 `QThread` 运行安装，不阻塞 UI；实时滚动日志展示
+  - 提供"自动安装"、"重新检测"、"打开官网"、"跳过"四种操作
+  - 安装成功后自动关闭对话框并继续执行转换
+
+**依赖与打包**
+- `requirements.txt`：`pywin32` 加平台标记 `; sys_platform == "win32"`（Linux/macOS `pip install` 不再报错）；移除未使用的 `pdf2image`
+- `main.spec`：新增 `core.converter._office_win` / `_office_unix` 到 hidden imports
+- GitHub Actions（`release.yml`）：
+  - Linux：`apt-get` 安装 `libreoffice`
+  - macOS：`brew install --cask libreoffice`
+  - 依赖安装合并为单步（利用平台标记，不再需要分平台过滤 requirements）
+  - Linux/macOS PyInstaller 命令补充 `_office_unix` hidden import 并排除 `win32com`/`pythoncom`
+
 ### V0.2.1
 
 #### feat: 文件列表与任务列表拆分
