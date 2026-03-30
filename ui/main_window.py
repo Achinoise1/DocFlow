@@ -425,6 +425,27 @@ class MainWindow(QMainWindow):
 
     # ===== 转换操作 =====
 
+    def _ensure_libreoffice(self, conversion_type: str) -> bool:
+        """
+        当转换类型需要 LibreOffice（非 Windows）时，检查其是否已安装。
+        若未安装则弹出安装引导对话框。返回 True 表示可以继续转换。
+        """
+        import sys
+        if sys.platform == 'win32':
+            return True  # Windows 使用 COM，不需要 LibreOffice
+        if conversion_type not in ('word_to_pdf', 'ppt_to_pdf'):
+            return True  # 仅 Office → PDF 需要 LibreOffice
+
+        from utils.libreoffice_manager import is_installed
+        if is_installed():
+            return True
+
+        # LibreOffice 未安装，启动引导对话框
+        from ui.widgets.libreoffice_setup_dialog import LibreOfficeSetupDialog
+        dlg = LibreOfficeSetupDialog(parent=self)
+        dlg.exec()
+        return dlg.is_ready()
+
     def _get_current_conversion_type(self) -> str:
         """获取当前选中的转换类型"""
         current_tab = self.tab_widget.currentIndex()
@@ -465,6 +486,10 @@ class MainWindow(QMainWindow):
         # 批量图片合并模式
         if conversion_type in ('images_to_pdf', 'images_to_word'):
             self._start_batch_image_conversion(conversion_type)
+            return
+
+        # 非 Windows 平台且需要 Office 转换时，确保 LibreOffice 已安装
+        if not self._ensure_libreoffice(conversion_type):
             return
 
         accepted_exts = self._get_accepted_extensions(conversion_type)

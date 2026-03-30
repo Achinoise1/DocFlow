@@ -62,8 +62,8 @@ jobs:
         if: runner.os != 'Windows'
         run: cmake --version
 
-      # ── 5. Linux：安装 Qt / OpenGL 运行时依赖 ──────
-      - name: Install Qt runtime libs (Linux)
+      # ── 5. Linux：安装 Qt / OpenGL 运行时依赖 + LibreOffice ─────
+      - name: Install system libs (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
@@ -80,20 +80,18 @@ jobs:
             libxcb-render-util0 \
             libxcb-shape0 \
             libxcb-cursor0 \
-            libxkbcommon-x11-0
+            libxkbcommon-x11-0 \
+            libreoffice
+
+      # ── 5b. macOS：安装 LibreOffice ────────────────
+      - name: Install LibreOffice (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --cask libreoffice
 
       # ── 6. 安装 Python 依赖 ────────────────────────
-      #       pywin32 仅支持 Windows，非 Windows 过滤掉
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
+      #       pywin32 已通过 sys_platform 标记限定为 Windows 专用
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
-
-      - name: Install dependencies (Linux / macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          grep -Ev '^\s*pywin32' requirements.txt > requirements-unix.txt
-          pip install -r requirements-unix.txt
 
       # ── 7. 构建可执行文件 ──────────────────────────
       #       Windows：使用 main.spec（含 pywin32 / COM 支持）
@@ -102,7 +100,7 @@ jobs:
         shell: pwsh
         run: pyinstaller main.spec --clean -y
 
-      #       Linux / macOS：不含 pywin32，动态拼接参数
+      #       Linux / macOS：使用 LibreOffice headless 后端
       - name: Build with PyInstaller (Linux / macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -130,6 +128,7 @@ jobs:
             --hidden-import core.converter.pdf_converter \
             --hidden-import core.converter.image_converter \
             --hidden-import core.converter.office_converter \
+            --hidden-import "core.converter._office_unix" \
             --hidden-import ui \
             --hidden-import ui.main_window \
             --hidden-import ui.widgets \
@@ -139,6 +138,8 @@ jobs:
             --hidden-import utils.logger \
             --exclude-module tkinter \
             --exclude-module _tkinter \
+            --exclude-module win32com \
+            --exclude-module pythoncom \
             --clean \
             -y
 
