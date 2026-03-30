@@ -1,38 +1,19 @@
 """文件工具模块 - 文件类型识别、路径处理等"""
 import os
 
-# 支持的文件扩展名映射
-SUPPORTED_EXTENSIONS = {
-    'word': ['.doc', '.docx'],
-    'ppt': ['.ppt', '.pptx'],
-    'pdf': ['.pdf'],
-    'image': ['.jpg', '.jpeg', '.png'],
-}
-
-# 转换类型映射
-CONVERSION_MAP = {
-    'word_to_pdf': {'input': ['.doc', '.docx'], 'output': '.pdf'},
-    'ppt_to_pdf': {'input': ['.ppt', '.pptx'], 'output': '.pdf'},
-    'pdf_to_word': {'input': ['.pdf'], 'output': '.docx'},
-    'pdf_to_ppt': {'input': ['.pdf'], 'output': '.pptx'},
-    'image_to_pdf': {'input': ['.jpg', '.jpeg', '.png'], 'output': '.pdf'},
-    'image_to_word': {'input': ['.jpg', '.jpeg', '.png'], 'output': '.docx'},
-    'pdf_to_image': {'input': ['.pdf'], 'output': '.png'},
-}
+from core.conversion_registry import get_file_type_from_ext, get_all_input_exts
 
 
 def get_file_type(file_path: str) -> str:
-    """根据扩展名判断文件类型"""
+    """根据扩展名判断文件类型（word/ppt/pdf/image/unknown）"""
     ext = os.path.splitext(file_path)[1].lower()
-    for file_type, extensions in SUPPORTED_EXTENSIONS.items():
-        if ext in extensions:
-            return file_type
-    return 'unknown'
+    return get_file_type_from_ext(ext)
 
 
 def is_supported_file(file_path: str) -> bool:
     """判断文件是否被支持"""
-    return get_file_type(file_path) != 'unknown'
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in get_all_input_exts()
 
 
 def get_output_path(input_path: str, output_ext: str, output_dir: str = None) -> str:

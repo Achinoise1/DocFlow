@@ -13,9 +13,9 @@ from PySide6.QtGui import QIcon
 from ui.widgets.drop_zone import DropZone, FileListItem
 from ui.widgets.help_dialog import HelpDialog
 from core.task_manager import TaskManager
+from core.conversion_registry import get_by_id, get_by_tab
 from utils.file_utils import (
-    get_file_type, get_file_ext, get_output_path, is_supported_file,
-    SUPPORTED_EXTENSIONS
+    get_file_type, get_file_ext, get_output_path, is_supported_file
 )
 from utils.logger import logger
 
@@ -233,16 +233,8 @@ class MainWindow(QMainWindow):
         combo.setObjectName(f'combo_{tab_type}')
         combo.setMinimumWidth(200)
 
-        if tab_type == 'pdf':
-            combo.addItem('PDF → Word', 'pdf_to_word')
-            combo.addItem('PDF → PPT', 'pdf_to_ppt')
-            combo.addItem('PDF → 图片', 'pdf_to_image')
-        elif tab_type == 'image':
-            combo.addItem('图片 → PDF（合并）', 'images_to_pdf')
-            combo.addItem('图片 → Word', 'images_to_word')
-        elif tab_type == 'doc':
-            combo.addItem('Word → PDF', 'word_to_pdf')
-            combo.addItem('PPT → PDF', 'ppt_to_pdf')
+        for entry in get_by_tab(tab_type):
+            combo.addItem(entry['label'], entry['id'])
 
         layout.addWidget(label)
         layout.addWidget(combo)
@@ -298,21 +290,11 @@ class MainWindow(QMainWindow):
         is_pdf_to_image = combo and combo.currentData() == 'pdf_to_image'
         for w in self._pdf_image_widgets:
             w.setVisible(is_pdf_to_image)
-    # 每种转换类型对应的拖拽区提示文字
-    _HINT_MAP = {
-        'word_to_pdf':    '支持 Word 文件（.doc、.docx）',
-        'ppt_to_pdf':     '支持 PPT 文件（.ppt、.pptx）',
-        'pdf_to_word':    '支持 PDF 文件（.pdf）',
-        'pdf_to_ppt':     '支持 PDF 文件（.pdf）',
-        'pdf_to_image':   '支持 PDF 文件（.pdf）',
-        'images_to_pdf':  '支持图片文件（.jpg、.jpeg、.png）',
-        'images_to_word': '支持图片文件（.jpg、.jpeg、.png）',
-    }
-
     def _on_conversion_type_changed(self, _=None):
         """切换转换类型时：更新提示文字、剔除不兼容文件"""
         conversion_type = self._get_current_conversion_type()
-        hint = self._HINT_MAP.get(conversion_type, '支持 Word、PPT、PDF、图片文件')
+        entry = get_by_id(conversion_type)
+        hint = entry['hint_text'] if entry else '支持 Word、PPT、PDF、图片文件'
         self.drop_zone.set_hint(hint)
         self._filter_files_for_current_type()
 
@@ -469,17 +451,8 @@ class MainWindow(QMainWindow):
 
     def _get_accepted_extensions(self, conversion_type: str) -> list:
         """根据转换类型获取允许的输入文件扩展名"""
-        ext_map = {
-            'word_to_pdf': ['.doc', '.docx'],
-            'ppt_to_pdf':  ['.ppt', '.pptx'],
-            'to_pdf':      ['.doc', '.docx', '.ppt', '.pptx'],
-            'pdf_to_word': ['.pdf'],
-            'pdf_to_ppt':  ['.pdf'],
-            'pdf_to_image': ['.pdf'],
-            'images_to_pdf': ['.jpg', '.jpeg', '.png'],
-            'images_to_word': ['.jpg', '.jpeg', '.png'],
-        }
-        return ext_map.get(conversion_type, [])
+        entry = get_by_id(conversion_type)
+        return entry['input_exts'] if entry else []
 
     def _start_conversion(self):
         """开始转换"""
