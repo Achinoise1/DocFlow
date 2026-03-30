@@ -427,3 +427,107 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked:hover {
     image: url(resources/icons/checkbox_checked_dark.svg);
 }
+
+/* ===== 任务列表 ===== */
+#taskCountLabel {
+    font-size: 14px;
+    font-weight: bold;
+    color: #a6adc8;
+    padding: 4px 0;
+}
+
+#taskScrollArea {
+    background-color: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+}
+
+#taskScrollArea QWidget {
+    background-color: transparent;
+}
+
+#taskListItem {
+    background-color: #313244;
+    border-radius: 6px;
+    border: 1px solid #45475a;
+    padding: 2px;
+}
+
+#taskListItem:hover {
+    background-color: #3d3f54;
+    border-color: #585b70;
+}
+
+#taskTitle {
+    font-size: 13px;
+    font-weight: bold;
+    color: #cdd6f4;
+}
+
+#taskType {
+    font-size: 11px;
+    color: #6c7086;
+}
+
+#taskDetail {
+    font-size: 11px;
+    color: #a6adc8;
+}
+
+#taskDetail[role="success"] {
+    color: #a6e3a1;
+}
+
+#taskDetail[role="error"] {
+    color: #f38ba8;
+}
+
+/* 任务状态点 */
+#taskStatusDot {
+    border-radius: 5px;
+    min-width: 10px;
+    max-width: 10px;
+    min-height: 10px;
+    max-height: 10px;
+}
+
+#taskStatusDot[state="waiting"]    { background-color: #585b70; }
+#taskStatusDot[state="converting"] { background-color: #89b4fa; }
+#taskStatusDot[state="done"]       { background-color: #a6e3a1; }
+#taskStatusDot[state="failed"]     { background-color: #f38ba8; }
+#taskStatusDot[state="cancelled"]  { background-color: #f9e2af; }
+
+/* 任务状态标签 */
+#taskStatus {
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+#taskStatus[state="waiting"]    { color: #a6adc8; }
+#taskStatus[state="converting"] { color: #89b4fa; }
+#taskStatus[state="done"]       { color: #a6e3a1; }
+#taskStatus[state="failed"]     { color: #f38ba8; }
+#taskStatus[state="cancelled"]  { color: #f9e2af; }
+
+/* 任务进度条 */
+#taskProgress {
+    max-height: 6px;
+}
+
+/* 重试按钮 */
+#retryBtn {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background-color: #45475a;
+    border: 1px solid #585b70;
+    color: #cdd6f4;
+}
+
+#retryBtn:hover {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    border-color: #89b4fa;
+}

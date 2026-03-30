@@ -5,13 +5,14 @@ import uuid
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
     QPushButton, QLabel, QComboBox, QFileDialog,
-    QFrame, QMessageBox, QSpinBox, QCheckBox
+    QFrame, QMessageBox, QSpinBox, QCheckBox, QSplitter
 )
 from PySide6.QtCore import Qt, Slot, QSettings
 from PySide6.QtGui import QIcon
 
 from ui.widgets.drop_zone import DropZone
 from ui.widgets.file_list_widget import FileListWidget
+from ui.widgets.task_list_widget import TaskListWidget
 from ui.widgets.help_dialog import HelpDialog
 from core.task_manager import TaskManager
 from core.conversion_registry import get_by_id, get_by_tab
@@ -48,6 +49,8 @@ class MainWindow(QMainWindow):
 
         self._output_dir = None
         self._output_paths = []
+        self._last_tab_index = 0       # 用于 Tab 切换回滚
+        self._last_doc_combo_index = 0  # 用于 doc combo 切换回滚
 
         # 用户设置
         self._settings = QSettings('DocFlow', 'DocFlow')
@@ -107,25 +110,35 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.tab_pdf, '📕 PDF转换')
         self.tab_widget.addTab(self.tab_image, '🖼️ 图片转换')
 
-        # 切换Tab时自动剔除不兼容文件
-        self.tab_widget.currentChanged.connect(self._on_conversion_type_changed)
-        # doc tab的combo切换时也要处理
+        # 切换Tab时清空文件列表（含确认弹窗）
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        # doc tab 的 combo 切换时，若扩展名不同同样弹确认框
         doc_combo = self.tab_doc.findChild(QComboBox, 'combo_doc')
         if doc_combo:
-            doc_combo.currentIndexChanged.connect(self._on_conversion_type_changed)
+            doc_combo.currentIndexChanged.connect(self._on_doc_combo_type_changed)
 
         # 固定高度，避免Tab面板撑开
         self.tab_widget.setMaximumHeight(80)
 
         main_layout.addWidget(self.tab_widget)
 
-        # ===== 拖拽区域 =====
+        # ===== 左右分栏 (QSplitter) =====
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setObjectName('mainSplitter')
+        splitter.setChildrenCollapsible(False)
+
+        # ── 左侧：拖拽区 + 文件列表 ──────────────────────────────────
+        left_panel = QWidget()
+        left_panel.setMinimumWidth(220)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 4, 0)
+        left_layout.setSpacing(6)
+
         self.drop_zone = DropZone()
         self.drop_zone.files_dropped.connect(self._on_files_dropped)
         self.drop_zone.mousePressEvent = lambda e: self._browse_files()
-        main_layout.addWidget(self.drop_zone)
+        left_layout.addWidget(self.drop_zone)
 
-        # 拖拽区下方：快捷选择按钮行
         quick_bar = QHBoxLayout()
         quick_bar.setContentsMargins(0, 0, 0, 0)
         quick_bar.setSpacing(8)
@@ -138,9 +151,8 @@ class MainWindow(QMainWindow):
         quick_bar.addWidget(browse_files_btn)
         quick_bar.addWidget(browse_dir_btn)
         quick_bar.addStretch()
-        main_layout.addLayout(quick_bar)
+        left_layout.addLayout(quick_bar)
 
-        # ===== 文件列表区域 =====
         file_list_frame = QFrame()
         file_list_frame.setObjectName('fileListFrame')
         file_list_layout = QVBoxLayout(file_list_frame)
@@ -161,8 +173,23 @@ class MainWindow(QMainWindow):
         self.file_list_widget = FileListWidget()
         self.file_list_widget.file_count_changed.connect(self._update_file_count)
         file_list_layout.addWidget(self.file_list_widget)
+        left_layout.addWidget(file_list_frame, 1)
 
-        main_layout.addWidget(file_list_frame)
+        # ── 右侧：任务列表 ───────────────────────────────────────────
+        right_panel = QWidget()
+        right_panel.setMinimumWidth(220)
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(4, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        self.task_list_widget = TaskListWidget()
+        self.task_list_widget.retry_requested.connect(self._on_retry_requested)
+        right_layout.addWidget(self.task_list_widget)
+
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([450, 450])
+        main_layout.addWidget(splitter, 1)
 
         # ===== 操作按钮 =====
         btn_layout = QHBoxLayout()
@@ -279,33 +306,73 @@ class MainWindow(QMainWindow):
         is_pdf_to_image = combo and combo.currentData() == 'pdf_to_image'
         for w in self._pdf_image_widgets:
             w.setVisible(is_pdf_to_image)
+
+    def _get_conversion_type_for_tab(self, tab_index: int) -> str:
+        """返回指定 Tab 索引对应的当前转换类型 ID。"""
+        if tab_index == 0:
+            combo = self.tab_doc.findChild(QComboBox, 'combo_doc')
+        elif tab_index == 1:
+            combo = self.tab_pdf.findChild(QComboBox, 'combo_pdf')
+        else:
+            combo = self.tab_image.findChild(QComboBox, 'combo_image')
+        return combo.currentData() if combo else 'to_pdf'
+
+    def _exts_changed(self, old_type: str, new_type: str) -> bool:
+        """判断两种转换类型的接受扩展名集合是否不同，
+        且文件列表非空。满足两个条件才需要清空确认。"""
+        if not self.file_list_widget.file_paths:
+            return False
+        return set(self._get_accepted_extensions(old_type)) != \
+               set(self._get_accepted_extensions(new_type))
+
+    def _ask_clear_confirm(self) -> bool:
+        """弹出确认对话框，用户确认则清空文件列表并返回 True，取消返回 False。"""
+        reply = QMessageBox.question(
+            self, '切换转换类型',
+            '当前文件列表中的文件类型与新转换类型不匹配，切换将清空文件列表。是否继续？',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.file_list_widget.clear_files()
+            return True
+        return False
+
+    def _on_tab_changed(self, index: int):
+        """切换 Tab 时：若新旧转换类型接受扩展名不同且文件列表非空，则弹确认框。"""
+        old_type = self._get_conversion_type_for_tab(self._last_tab_index)
+        new_type = self._get_conversion_type_for_tab(index)
+        if self._exts_changed(old_type, new_type):
+            if not self._ask_clear_confirm():
+                self.tab_widget.blockSignals(True)
+                self.tab_widget.setCurrentIndex(self._last_tab_index)
+                self.tab_widget.blockSignals(False)
+                return
+        self._last_tab_index = index
+        self._on_conversion_type_changed()
+
+    def _on_doc_combo_type_changed(self, new_index: int):
+        """文档转换 Tab 内切换子类型：若扩展名不同且文件列表非空，则弹确认框。"""
+        combo = self.tab_doc.findChild(QComboBox, 'combo_doc')
+        if not combo:
+            return
+        old_type = combo.itemData(self._last_doc_combo_index)
+        new_type = combo.itemData(new_index)
+        if self._exts_changed(old_type, new_type):
+            if not self._ask_clear_confirm():
+                combo.blockSignals(True)
+                combo.setCurrentIndex(self._last_doc_combo_index)
+                combo.blockSignals(False)
+                return
+        self._last_doc_combo_index = new_index
+        self._on_conversion_type_changed()
+
     def _on_conversion_type_changed(self, _=None):
-        """切换转换类型时：更新提示文字、剔除不兼容文件"""
+        """更新拖拽区提示文字（切换 Tab 或 combo 时调用）。"""
         conversion_type = self._get_current_conversion_type()
         entry = get_by_id(conversion_type)
         hint = entry['hint_text'] if entry else '支持 Word、PPT、PDF、图片文件'
         self.drop_zone.set_hint(hint)
-        self._filter_files_for_current_type()
-
-    def _filter_files_for_current_type(self):
-        """剔除文件列表中不符合当前转换类型的文件"""
-        if not self.file_list_widget.file_paths:
-            return
-        conversion_type = self._get_current_conversion_type()
-        accepted_exts = self._get_accepted_extensions(conversion_type)
-        if not accepted_exts:
-            return
-
-        to_remove = [
-            path for path in self.file_list_widget.file_paths
-            if get_file_ext(path) not in accepted_exts
-        ]
-        for path in to_remove:
-            self.file_list_widget.remove_file(path)
-
-        if to_remove:
-            names = ', '.join(os.path.basename(p) for p in to_remove)
-            self.statusBar().showMessage(f'已移除不匹配的文件：{names}', 4000)
 
     # ===== 文件操作 =====
 
@@ -400,23 +467,21 @@ class MainWindow(QMainWindow):
             self._start_batch_image_conversion(conversion_type)
             return
 
-        # 获取当前转换类型接受的文件扩展名
         accepted_exts = self._get_accepted_extensions(conversion_type)
 
         options = {}
         if conversion_type == 'pdf_to_image':
             options = self._get_pdf_to_image_options()
 
-        # 只处理未完成的文件，类型不匹配则跳过
-        pending_paths = []
+        # 校验文件类型，剔除不匹配项
+        to_submit = []
         skipped = []
-        for p in self.file_list_widget.pending_paths:
+        for p in self.file_list_widget.file_paths:
             ext = get_file_ext(p)
             if accepted_exts and ext not in accepted_exts:
                 skipped.append(os.path.basename(p))
-                self.file_list_widget.mark_skipped(p)
             else:
-                pending_paths.append(p)
+                to_submit.append(p)
 
         if skipped:
             QMessageBox.warning(
@@ -424,18 +489,28 @@ class MainWindow(QMainWindow):
                 f'以下文件不支持当前转换类型，已跳过：\n{", ".join(skipped)}'
             )
 
-        if not pending_paths:
-            if not skipped:
-                QMessageBox.information(self, '提示', '所有文件已转换完成，请添加新文件')
+        if not to_submit:
             return
 
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.statusBar().showMessage('正在转换...')
 
-        for path in pending_paths:
+        for path in to_submit:
             task_id = str(uuid.uuid4())[:8]
-            self.file_list_widget.set_task_id(path, task_id)
+            snapshot = {
+                'task_id': task_id,
+                'title': os.path.basename(path),
+                'conversion_type': conversion_type,
+                'input_path': path,
+                'image_paths': None,
+                'output_dir': self._output_dir,
+                'output_path': None,
+                'options': options,
+                'is_batch': False,
+            }
+            self.task_list_widget.add_task(snapshot)
+            self.file_list_widget.remove_file(path)
             self.task_manager.submit_task(
                 task_id, path, conversion_type,
                 self._output_dir, options
@@ -444,7 +519,7 @@ class MainWindow(QMainWindow):
     def _start_batch_image_conversion(self, conversion_type: str):
         """批量图片合并转换"""
         image_paths = [
-            p for p in self.file_list_widget.pending_paths
+            p for p in self.file_list_widget.file_paths
             if get_file_type(p) == 'image'
         ]
 
@@ -458,7 +533,6 @@ class MainWindow(QMainWindow):
             os.path.join(outdir, f'合并文档{ext}'), ext, outdir
         )
 
-        # 询问输出文件名
         save_path, _ = QFileDialog.getSaveFileName(
             self, '保存文件', output_path,
             'PDF文件 (*.pdf)' if ext == '.pdf' else 'Word文件 (*.docx)'
@@ -471,8 +545,21 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('正在合并...')
 
         task_id = str(uuid.uuid4())[:8]
+        n = len(image_paths)
+        snapshot = {
+            'task_id': task_id,
+            'title': f'合并 {n} 张图片 → {os.path.basename(save_path)}',
+            'conversion_type': conversion_type,
+            'input_path': None,
+            'image_paths': image_paths,
+            'output_dir': self._output_dir,
+            'output_path': save_path,
+            'options': {},
+            'is_batch': True,
+        }
+        self.task_list_widget.add_task(snapshot)
         for path in image_paths:
-            self.file_list_widget.set_task_id(path, task_id)
+            self.file_list_widget.remove_file(path)
 
         self.task_manager.submit_batch_image_task(
             task_id, image_paths, conversion_type, save_path
@@ -481,27 +568,92 @@ class MainWindow(QMainWindow):
     def _cancel_all(self):
         """取消所有转换"""
         self.task_manager.cancel_all()
+        self.task_list_widget.cancel_all_pending()
         self.start_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.statusBar().showMessage('已取消')
-        self.file_list_widget.reset_all_tasks()
+
+    # ===== 重试 =====
+
+    def _on_retry_requested(self, task_id: str):
+        """处理任务列表中的重试/重新开始请求。"""
+        snapshot = self.task_list_widget.get_snapshot(task_id)
+        if not snapshot:
+            return
+        if snapshot['is_batch']:
+            self._retry_batch_task(task_id, snapshot)
+        else:
+            self._retry_single_task(task_id, snapshot)
+
+    def _retry_single_task(self, old_task_id: str, snapshot: dict):
+        input_path = snapshot['input_path']
+        if not os.path.exists(input_path):
+            QMessageBox.warning(self, '文件不存在',
+                f'源文件已不存在：\n{input_path}')
+            return
+        new_task_id = str(uuid.uuid4())[:8]
+        new_snapshot = dict(snapshot)
+        new_snapshot['task_id'] = new_task_id
+        self.task_list_widget.reset_task(old_task_id, new_task_id, new_snapshot)
+        self.task_manager.submit_task(
+            new_task_id, input_path,
+            snapshot['conversion_type'],
+            snapshot['output_dir'],
+            snapshot['options']
+        )
+        self.start_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
+        self.statusBar().showMessage('正在重试...')
+
+    def _retry_batch_task(self, old_task_id: str, snapshot: dict):
+        image_paths = snapshot['image_paths']
+        missing = [p for p in image_paths if not os.path.exists(p)]
+        if missing:
+            QMessageBox.warning(self, '文件不存在',
+                '以下源文件已不存在：\n' + '\n'.join(os.path.basename(p) for p in missing))
+            return
+        conversion_type = snapshot['conversion_type']
+        ext = '.pdf' if conversion_type == 'images_to_pdf' else '.docx'
+        outdir = snapshot['output_dir'] or os.path.dirname(image_paths[0])
+        default_path = get_output_path(
+            os.path.join(outdir, f'合并文档{ext}'), ext, outdir
+        )
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, '保存文件', default_path,
+            'PDF文件 (*.pdf)' if ext == '.pdf' else 'Word文件 (*.docx)'
+        )
+        if not save_path:
+            return
+        new_task_id = str(uuid.uuid4())[:8]
+        n = len(image_paths)
+        new_snapshot = dict(snapshot)
+        new_snapshot['task_id'] = new_task_id
+        new_snapshot['title'] = f'合并 {n} 张图片 → {os.path.basename(save_path)}'
+        new_snapshot['output_path'] = save_path
+        self.task_list_widget.reset_task(old_task_id, new_task_id, new_snapshot)
+        self.task_manager.submit_batch_image_task(
+            new_task_id, image_paths, conversion_type, save_path
+        )
+        self.start_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
+        self.statusBar().showMessage('正在合并...')
 
     # ===== 任务回调 =====
 
     @Slot(str)
     def _on_task_started(self, task_id: str):
-        self.file_list_widget.update_task_state(task_id, 'started')
+        self.task_list_widget.on_task_started(task_id)
 
     @Slot(str, int)
     def _on_task_progress(self, task_id: str, percent: int):
-        self.file_list_widget.update_task_state(task_id, 'progress', percent=percent)
+        self.task_list_widget.on_task_progress(task_id, percent)
 
     @Slot(str, bool, str, str)
     def _on_task_finished(self, task_id: str, success: bool, message: str, output_path: str):
-        paths = self.file_list_widget.update_task_state(
-            task_id, 'finished', success=success, output_path=output_path
+        collected = self.task_list_widget.on_task_finished(
+            task_id, success, message, output_path
         )
-        self._output_paths.extend(paths)
+        self._output_paths.extend(collected)
         if not success:
             self.statusBar().showMessage(f'转换失败: {message}')
 
