@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 授予写权限以创建 Release
+permissions:
+  contents: write
+
+jobs:
+  # ────────────────────────────────────────────────────
+  # Job 1: 多平台构建 & 打包
+  # ────────────────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: DocFlow-windows
+            archive_name: DocFlow-windows
+            archive_ext: zip
+            exe_name: DocFlow.exe
+
+          - os: macos-latest
+            artifact_name: DocFlow-macos
+            archive_name: DocFlow-macos
+            archive_ext: tar.gz
+            exe_name: DocFlow
+
+          - os: ubuntu-latest
+            artifact_name: DocFlow-linux
+            archive_name: DocFlow-linux
+            archive_ext: tar.gz
+            exe_name: DocFlow
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python 环境 ─────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ── 3. Visual Studio 构建工具（Windows）─────────
+      #       pywin32 等 C 扩展编译时可能需要 MSVC
+      - name: Set up MSBuild / MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
+      # ── 4. CMake（Linux / macOS）──────────────────
+      #       Linux/macOS 上原生扩展若需 CMake 则可用
+      - name: Verify CMake version (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: cmake --version
+
+      # ── 5. Linux：安装 Qt / OpenGL 运行时依赖 ──────
+      - name: Install Qt runtime libs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 \
+            libglib2.0-0 \
+            libegl1 \
+            libdbus-1-3 \
+            libxcb-xinerama0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-cursor0 \
+            libxkbcommon-x11-0
+
+      # ── 6. 安装 Python 依赖 ────────────────────────
+      #       pywin32 仅支持 Windows，非 Windows 过滤掉
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: pip install -r requirements.txt
+
+      - name: Install dependencies (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          grep -Ev '^\s*pywin32' requirements.txt > requirements-unix.txt
+          pip install -r requirements-unix.txt
+
+      # ── 7. 构建可执行文件 ──────────────────────────
+      #       Windows：使用 main.spec（含 pywin32 / COM 支持）
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pyinstaller main.spec --clean -y
+
+      #       Linux / macOS：不含 pywin32，动态拼接参数
+      - name: Build with PyInstaller (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          pyinstaller main.py \
+            --name DocFlow \
+            --onefile \
+            --windowed \
+            --add-data "resources:resources" \
+            --add-data "doc/image:doc/image" \
+            --hidden-import fitz \
+            --hidden-import fitz.utils \
+            --hidden-import pdf2docx \
+            --hidden-import pptx \
+            --hidden-import pptx.util \
+            --hidden-import pptx.enum.text \
+            --hidden-import docx \
+            --hidden-import docx.shared \
+            --hidden-import PIL \
+            --hidden-import PIL.Image \
+            --hidden-import PIL.ImageOps \
+            --hidden-import core \
+            --hidden-import core.task_manager \
+            --hidden-import core.converter \
+            --hidden-import core.converter.pdf_converter \
+            --hidden-import core.converter.image_converter \
+            --hidden-import core.converter.office_converter \
+            --hidden-import ui \
+            --hidden-import ui.main_window \
+            --hidden-import ui.widgets \
+            --hidden-import ui.widgets.drop_zone \
+            --hidden-import utils \
+            --hidden-import utils.file_utils \
+            --hidden-import utils.logger \
+            --exclude-module tkinter \
+            --exclude-module _tkinter \
+            --clean \
+            -y
+
+      # ── 8. 打包压缩 ────────────────────────────────
+      - name: Archive build output (Windows → zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $archive = "dist\${{ matrix.archive_name }}-${tag}.zip"
+          Compress-Archive -Path "dist\${{ matrix.exe_name }}" `
+                           -DestinationPath $archive
+          Write-Host "Created: $archive"
+
+      - name: Archive build output (Linux / macOS → tar.gz)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          archive="dist/${{ matrix.archive_name }}-${tag}.tar.gz"
+          tar -czf "$archive" -C dist "${{ matrix.exe_name }}"
+          echo "Created: $archive"
+
+      # ── 9. 上传 Artifact ───────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.archive_name }}-*.*
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────
+  # Job 2: 汇总所有平台产物，发布 GitHub Release
+  # ────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "DocFlow ${{ github.ref_name }}"
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: artifacts/**/*
