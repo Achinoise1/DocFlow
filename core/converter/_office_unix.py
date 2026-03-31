@@ -4,11 +4,18 @@
   macOS:  brew install --cask libreoffice
   Ubuntu: sudo apt install libreoffice
   Fedora: sudo dnf install libreoffice
+
+也支持便携式捆绑 LibreOffice + 中文字体（Linux），参见 scripts/setup_portable_libreoffice.sh
 """
 import os
 import subprocess
+import tempfile
 import threading
-from utils.libreoffice_manager import find_soffice
+from utils.libreoffice_manager import (
+    find_soffice,
+    get_bundled_fontconfig_dir,
+    get_bundled_fonts_dir,
+)
 from utils.logger import log_conversion
 
 # LibreOffice 串行调用：并发运行多个 LibreOffice 实例可能竞争同一用户配置目录
@@ -64,14 +71,33 @@ def _convert_via_libreoffice(input_path: str, output_path: str) -> None:
     output_dir = os.path.dirname(abs_output)
     os.makedirs(output_dir, exist_ok=True)
 
+    # 构建环境变量：继承当前环境，叠加便携字体配置
+    env = os.environ.copy()
+    fc_dir = get_bundled_fontconfig_dir()
+    fonts_dir = get_bundled_fonts_dir()
+    if fc_dir:
+        env['FONTCONFIG_PATH'] = fc_dir
+        env['FONTCONFIG_FILE'] = os.path.join(fc_dir, 'fonts.conf')
+    if fonts_dir:
+        # 将便携字体目录追加到 XDG_DATA_DIRS，LibreOffice 也会扫描该路径
+        xdg = env.get('XDG_DATA_DIRS', '/usr/local/share:/usr/share')
+        env['XDG_DATA_DIRS'] = fonts_dir + ':' + xdg
+
+    # 使用独立的用户配置目录，避免与系统 LibreOffice 冲突
+    lo_profile = os.path.join(tempfile.gettempdir(), 'docflow_lo_profile')
+    os.makedirs(lo_profile, exist_ok=True)
+    user_install_arg = f'-env:UserInstallation=file://{lo_profile}'
+
     with _office_lock:
         try:
             result = subprocess.run(
-                [soffice, '--headless', '--convert-to', 'pdf',
+                [soffice, '--headless', '--norestore', user_install_arg,
+                 '--convert-to', 'pdf',
                  '--outdir', output_dir, abs_input],
                 capture_output=True,
                 text=True,
                 timeout=120,
+                env=env,
             )
         except subprocess.TimeoutExpired as e:
             raise RuntimeError('LibreOffice 转换超时（>120s），请检查文件大小') from e

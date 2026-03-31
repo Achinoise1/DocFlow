@@ -13,6 +13,13 @@ from pathlib import Path
 # LibreOffice 稳定版版本号（可在新版发布后手动更新）
 _LO_VERSION = '24.8.5'
 
+
+def _get_base_dir() -> str:
+    """获取应用根目录（兼容 PyInstaller frozen 和开发模式）"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # ── 取消安装机制 ──────────────────────────────────────────────────────────────
 
 _current_proc: subprocess.Popen | None = None
@@ -33,8 +40,71 @@ def cancel_install() -> None:
 # ── 检测 ─────────────────────────────────────────────────────────────────────
 
 
+def _find_bundled_soffice() -> str | None:
+    """查找便携式捆绑 LibreOffice，返回 soffice 绝对路径或 None
+
+    支持两种目录结构：
+    1. AppImage 解压: libreoffice_portable/squashfs-root/AppRun
+    2. deb 解压:      libreoffice_portable/opt/libreoffice*/program/soffice
+    """
+    base = _get_base_dir()
+    lo_dir = os.path.join(base, 'libreoffice_portable')
+
+    if not os.path.isdir(lo_dir):
+        return None
+
+    # AppImage 解压方式
+    apprun = os.path.join(lo_dir, 'squashfs-root', 'AppRun')
+    if os.path.isfile(apprun) and os.access(apprun, os.X_OK):
+        return apprun
+
+    # deb 解压方式：搜索 opt/libreoffice*/program/soffice
+    opt_dir = os.path.join(lo_dir, 'opt')
+    if os.path.isdir(opt_dir):
+        for entry in sorted(os.listdir(opt_dir), reverse=True):
+            soffice = os.path.join(opt_dir, entry, 'program', 'soffice')
+            if os.path.isfile(soffice) and os.access(soffice, os.X_OK):
+                return soffice
+
+    # 通用搜索：递归查找 soffice
+    for root, dirs, files in os.walk(lo_dir):
+        if 'soffice' in files:
+            candidate = os.path.join(root, 'soffice')
+            if os.access(candidate, os.X_OK):
+                return candidate
+
+    return None
+
+
+def get_bundled_fontconfig_dir() -> str | None:
+    """返回便携式 fontconfig 目录路径（包含 fonts.conf），不存在返回 None"""
+    base = _get_base_dir()
+    fc_dir = os.path.join(base, 'fontconfig')
+    fc_conf = os.path.join(fc_dir, 'fonts.conf')
+    if os.path.isfile(fc_conf):
+        return fc_dir
+    return None
+
+
+def get_bundled_fonts_dir() -> str | None:
+    """返回便携式字体目录路径，不存在返回 None"""
+    base = _get_base_dir()
+    fonts_dir = os.path.join(base, 'fonts')
+    if os.path.isdir(fonts_dir):
+        return fonts_dir
+    return None
+
+
 def find_soffice() -> str | None:
-    """查找 LibreOffice soffice 可执行文件，返回绝对路径，未找到返回 None"""
+    """查找 LibreOffice soffice 可执行文件，返回绝对路径，未找到返回 None
+
+    优先查找便携式捆绑版本，然后查找系统安装版本。
+    """
+    # 优先使用便携式捆绑版本
+    bundled = _find_bundled_soffice()
+    if bundled:
+        return bundled
+
     if sys.platform == 'darwin':
         candidates = [
             '/Applications/LibreOffice.app/Contents/MacOS/soffice',
