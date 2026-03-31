@@ -201,7 +201,13 @@ class TaskListItem(QFrame):
 
     def _open_output(self):
         if self._output_path and os.path.exists(self._output_path):
-            os.startfile(self._output_path)
+            import sys, subprocess
+            if sys.platform == 'win32':
+                os.startfile(self._output_path)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', self._output_path])
+            else:
+                subprocess.Popen(['xdg-open', self._output_path])
 
 
 # ---------------------------------------------------------------------------
