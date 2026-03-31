@@ -7,7 +7,7 @@ QMainWindow {
 }
 
 QWidget {
-    font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Source Han Sans CN", "Segoe UI", sans-serif;
     font-size: 13px;
     color: #333333;
 }

@@ -15,7 +15,7 @@ _HELP_HTML = """
 <head>
 <meta charset="utf-8">
 <style>
-  body      { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; font-size: 14px;
+  body      { font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Source Han Sans CN", "Segoe UI", sans-serif; font-size: 14px;
               line-height: 1.5; color: #333; }
   h1        { font-size: 22px; color: #1565C0; border-bottom: 2px solid #1565C0;
               padding-bottom: 6px; margin-top: 20px; }
