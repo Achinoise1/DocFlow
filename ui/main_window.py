@@ -692,14 +692,22 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('转换完成')
 
         if self.auto_open_check.isChecked() and self._output_paths:
+            import sys, subprocess
+            def _open_path(p):
+                if sys.platform == 'win32':
+                    os.startfile(p)
+                elif sys.platform == 'darwin':
+                    subprocess.Popen(['open', p])
+                else:
+                    subprocess.Popen(['xdg-open', p])
             if len(self._output_paths) <= 3:
                 for path in self._output_paths:
                     if os.path.exists(path):
-                        os.startfile(path)
+                        _open_path(path)
             else:
                 folder = os.path.dirname(self._output_paths[0])
                 if os.path.isdir(folder):
-                    os.startfile(folder)
+                    _open_path(folder)
             self._output_paths.clear()
 
     # ===== 拖拽支持（窗口级别） =====
