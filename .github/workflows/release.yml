@@ -20,19 +20,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows，覆盖 Windows Server 2019 / Windows 10 及以上
           - os: windows-latest
             artifact_name: DocFlow-windows
             archive_name: DocFlow-windows
             archive_ext: zip
             exe_name: DocFlow.exe
 
+          # macOS Intel x86_64，覆盖 macOS 13（Ventura）及以上
           - os: macos-latest
-            artifact_name: DocFlow-macos
-            archive_name: DocFlow-macos
+            artifact_name: DocFlow-macos-intel
+            archive_name: DocFlow-macos-intel
             archive_ext: tar.gz
             exe_name: DocFlow
 
-          - os: ubuntu-latest
+          # macOS Apple Silicon arm64，覆盖 macOS 14（Sonoma）及以上
+          - os: macos-latest
+            artifact_name: DocFlow-macos-arm
+            archive_name: DocFlow-macos-arm
+            archive_ext: tar.gz
+            exe_name: DocFlow
+
+          # Linux x86_64，在 ubuntu-22.04 上编译（glibc 2.35），覆盖 Ubuntu 22.04+
+          - os: ubuntu-22.04
             artifact_name: DocFlow-linux
             archive_name: DocFlow-linux
             archive_ext: tar.gz
@@ -177,7 +187,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Download all artifacts

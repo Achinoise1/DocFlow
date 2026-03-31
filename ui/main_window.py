@@ -440,8 +440,16 @@ class MainWindow(QMainWindow):
         if is_installed():
             return True
 
-        # LibreOffice 未安装，启动引导对话框
-        from ui.widgets.libreoffice_setup_dialog import LibreOfficeSetupDialog
+        # 先静默安装（极简进度对话框，无需用户操作）
+        from ui.widgets.libreoffice_setup_dialog import (
+            LibreOfficeSilentInstallDialog, LibreOfficeSetupDialog,
+        )
+        silent_dlg = LibreOfficeSilentInstallDialog(parent=self)
+        silent_dlg.exec()
+        if silent_dlg.is_success():
+            return True
+
+        # 静默安装失败/取消，弹出引导对话框供用户重试或手动安装
         dlg = LibreOfficeSetupDialog(parent=self)
         dlg.exec()
         return dlg.is_ready()
