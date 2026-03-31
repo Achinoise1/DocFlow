@@ -7,8 +7,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QComboBox, QFileDialog,
     QFrame, QMessageBox, QSpinBox, QCheckBox, QSplitter
 )
-from PySide6.QtCore import Qt, Slot, QSettings
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtGui import QIcon, QGuiApplication
 
 from ui.widgets.drop_zone import DropZone
 from ui.widgets.file_list_widget import FileListWidget
@@ -52,13 +52,15 @@ class MainWindow(QMainWindow):
         self._last_tab_index = 0       # 用于 Tab 切换回滚
         self._last_doc_combo_index = 0  # 用于 doc combo 切换回滚
 
-        # 用户设置
-        self._settings = QSettings('DocFlow', 'DocFlow')
-        self._theme_manager = ThemeManager(self._settings)
-        self._current_theme = self._theme_manager.load_saved_theme()
+        self._theme_manager = ThemeManager()
 
         self._init_ui()
-        self._apply_theme(self._current_theme)
+        self._theme_manager.apply_system_theme()
+
+        # 跟随系统外观变化自动切换主题
+        QGuiApplication.styleHints().colorSchemeChanged.connect(
+            lambda _: self._theme_manager.apply_system_theme()
+        )
 
     def _init_ui(self):
         central_widget = QWidget()
@@ -81,13 +83,6 @@ class MainWindow(QMainWindow):
         title_v.addWidget(subtitle_label)
         title_layout.addLayout(title_v)
         title_layout.addStretch()
-
-        self.theme_btn = QPushButton('🌙')
-        self.theme_btn.setObjectName('themeBtn')
-        self.theme_btn.setFixedSize(36, 36)
-        self.theme_btn.setToolTip('切换主题')
-        self.theme_btn.clicked.connect(self._toggle_theme)
-        title_layout.addWidget(self.theme_btn)
 
         self.help_btn = QPushButton('❓')
         self.help_btn.setObjectName('themeBtn')
@@ -722,22 +717,8 @@ class MainWindow(QMainWindow):
         if files:
             self._add_files(files)
 
-    # ===== 主题切换 =====
-
-    def _apply_theme(self, theme_name: str):
-        self._theme_manager.apply(theme_name)
-        self._current_theme = theme_name
-        self._update_theme_button()
+    # ===== 帮助对话框 =====
 
     def _show_help(self):
         dlg = HelpDialog(self)
         dlg.exec()
-
-    def _toggle_theme(self):
-        new_theme = self._theme_manager.toggle(self._current_theme)
-        self._apply_theme(new_theme)
-
-    def _update_theme_button(self):
-        self.theme_btn.setText(self._theme_manager.get_button_icon(self._current_theme))
-        tooltip = '切换到深色主题' if self._current_theme == 'light' else '切换到浅色主题'
-        self.theme_btn.setToolTip(tooltip)
