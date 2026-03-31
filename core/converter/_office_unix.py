@@ -54,9 +54,8 @@ def _convert_via_libreoffice(input_path: str, output_path: str) -> None:
     soffice = find_soffice()
     if not soffice:
         raise RuntimeError(
-            '未检测到 LibreOffice，请先安装并确保其在 PATH 中。\n'
-            'macOS:  brew install --cask libreoffice\n'
-            'Ubuntu: sudo apt install libreoffice'
+            '未检测到 LibreOffice，请先运行安装脚本 install_libreoffice.sh，\n'
+            '或访问 https://www.libreoffice.org/download/ 手动下载安装。'
         )
 
     abs_input = os.path.abspath(input_path)

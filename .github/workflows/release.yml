@@ -72,7 +72,8 @@ jobs:
         if: runner.os != 'Windows'
         run: cmake --version
 
-      # ── 5. Linux：安装 Qt / OpenGL 运行时依赖 + LibreOffice ─────
+      # ── 5. Linux：安装 Qt / OpenGL 运行时依赖 ─────────────────────
+      #       LibreOffice 由用户自行安装，CI 构建不需要
       - name: Install system libs (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -90,13 +91,7 @@ jobs:
             libxcb-render-util0 \
             libxcb-shape0 \
             libxcb-cursor0 \
-            libxkbcommon-x11-0 \
-            libreoffice
-
-      # ── 5b. macOS：安装 LibreOffice ────────────────
-      - name: Install LibreOffice (macOS)
-        if: runner.os == 'macOS'
-        run: brew install --cask libreoffice
+            libxkbcommon-x11-0
 
       # ── 6. 安装 Python 依赖 ────────────────────────
       #       pywin32 已通过 sys_platform 标记限定为 Windows 专用
@@ -110,50 +105,21 @@ jobs:
         shell: pwsh
         run: pyinstaller main.spec --clean -y
 
-      #       Linux / macOS：使用 LibreOffice headless 后端
+      #       Linux / macOS：使用 main_unix.spec（onedir，依赖系统 LibreOffice）
       - name: Build with PyInstaller (Linux / macOS)
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          pyinstaller main.py \
-            --name DocFlow \
-            --onefile \
-            --windowed \
-            --add-data "resources:resources" \
-            --add-data "doc/image:doc/image" \
-            --hidden-import fitz \
-            --hidden-import fitz.utils \
-            --hidden-import pdf2docx \
-            --hidden-import pptx \
-            --hidden-import pptx.util \
-            --hidden-import pptx.enum.text \
-            --hidden-import docx \
-            --hidden-import docx.shared \
-            --hidden-import PIL \
-            --hidden-import PIL.Image \
-            --hidden-import PIL.ImageOps \
-            --hidden-import core \
-            --hidden-import core.task_manager \
-            --hidden-import core.converter \
-            --hidden-import core.converter.pdf_converter \
-            --hidden-import core.converter.image_converter \
-            --hidden-import core.converter.office_converter \
-            --hidden-import "core.converter._office_unix" \
-            --hidden-import ui \
-            --hidden-import ui.main_window \
-            --hidden-import ui.widgets \
-            --hidden-import ui.widgets.drop_zone \
-            --hidden-import utils \
-            --hidden-import utils.file_utils \
-            --hidden-import utils.logger \
-            --exclude-module tkinter \
-            --exclude-module _tkinter \
-            --exclude-module win32com \
-            --exclude-module pythoncom \
-            --clean \
-            -y
+        run: pyinstaller main_unix.spec --clean -y
 
-      # ── 8. 打包压缩 ────────────────────────────────
+      # ── 8b. 将安装脚本打入发布目录（Linux / macOS）──────────────────
+      - name: Bundle install scripts (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cp install_libreoffice.sh dist/DocFlow/
+          cp install_fonts.sh dist/DocFlow/
+
+      # ── 9. 打包压缩 ────────────────────────────────
       - name: Archive build output (Windows → zip)
         if: runner.os == 'Windows'
         shell: pwsh

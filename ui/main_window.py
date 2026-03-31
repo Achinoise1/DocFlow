@@ -421,33 +421,25 @@ class MainWindow(QMainWindow):
     # ===== 转换操作 =====
 
     def _ensure_libreoffice(self, conversion_type: str) -> bool:
-        """
-        当转换类型需要 LibreOffice（非 Windows）时，检查其是否已安装。
-        若未安装则弹出安装引导对话框。返回 True 表示可以继续转换。
-        """
-        import sys
+        """检查 LibreOffice 是否已安装（非 Windows）。未安装则提示用户运行安装脚本。"""
         if sys.platform == 'win32':
             return True  # Windows 使用 COM，不需要 LibreOffice
         if conversion_type not in ('word_to_pdf', 'ppt_to_pdf'):
             return True  # 仅 Office → PDF 需要 LibreOffice
 
-        from utils.libreoffice_manager import is_installed
+        from utils.libreoffice_manager import is_installed, _get_script_dir
         if is_installed():
             return True
 
-        # 先静默安装（极简进度对话框，无需用户操作）
-        from ui.widgets.libreoffice_setup_dialog import (
-            LibreOfficeSilentInstallDialog, LibreOfficeSetupDialog,
+        script_path = _get_script_dir() / 'install_libreoffice.sh'
+        QMessageBox.warning(
+            self, 'LibreOffice 未安装',
+            'Word / PPT 转 PDF 功能依赖 LibreOffice，但系统中未检测到 LibreOffice。\n\n'
+            f'请先运行安装脚本：\n  bash "{script_path}"\n\n'
+            '或访问 https://www.libreoffice.org/download/ 手动下载安装，\n'
+            '安装完成后重新启动本程序。'
         )
-        silent_dlg = LibreOfficeSilentInstallDialog(parent=self)
-        silent_dlg.exec()
-        if silent_dlg.is_success():
-            return True
-
-        # 静默安装失败/取消，弹出引导对话框供用户重试或手动安装
-        dlg = LibreOfficeSetupDialog(parent=self)
-        dlg.exec()
-        return dlg.is_ready()
+        return False
 
     def _get_current_conversion_type(self) -> str:
         """获取当前选中的转换类型"""
