@@ -17,8 +17,20 @@ from ui.main_window import MainWindow
 from utils.logger import logger
 
 
+def _check_unix_dependencies() -> None:
+    """Linux/macOS 首次运行时检测 LibreOffice 与中文字体，在 stderr 打印提示。"""
+    if sys.platform == 'win32':
+        return
+    try:
+        from utils.libreoffice_manager import check_dependencies_and_warn
+        check_dependencies_and_warn()
+    except Exception:
+        pass  # 检测本身不应阻断启动
+
+
 def main():
     logger.info('DocFlow 启动')
+    _check_unix_dependencies()
 
     app = QApplication(sys.argv)
     app.setApplicationName('DocFlow')
