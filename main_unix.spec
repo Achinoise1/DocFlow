@@ -68,11 +68,11 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# onedir 模式：不传入 a.binaries / a.datas 到 EXE，而是放进 COLLECT
+# onedir 模式：EXE 必须设置 exclude_binaries=True，binaries/datas 交由 COLLECT 管理
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    exclude_binaries=True,  # onedir 必须设置，否则与 COLLECT 产生路径冲突
     name='DocFlow',
     debug=False,
     bootloader_ignore_signals=False,
@@ -86,7 +86,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='resources/icons/app_icon.png',  # macOS/Linux 用 png；若无可删此行
 )
 
 coll = COLLECT(
