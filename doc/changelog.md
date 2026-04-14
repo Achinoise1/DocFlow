@@ -4,132 +4,82 @@
 
 #### feat: 跨平台支持 & LibreOffice 自动安装
 
-**跨平台转换**
-- 将 `office_converter.py` 重构为平台路由层，运行时按 `sys.platform` 选择后端：
-  - Windows：`_office_win.py`（win32com 调用本机 Office / WPS，原有逻辑不变）
-  - macOS / Linux：`_office_unix.py`（LibreOffice `--headless` subprocess）
-- `dispatcher.py`、`task_manager.py` 无需任何改动，上层调用保持透明
+**转换核心**
+- 新增 macOS / Linux 平台支持，通过 LibreOffice 后端实现 Word / PPT → PDF 转换
+- Windows 路径（Office / WPS COM 自动化）保持不变，平台差异对上层调用透明
 
-**LibreOffice 自动检测与安装**
-- 新增 `utils/libreoffice_manager.py`：
-  - `find_soffice()` 跨平台查找 LibreOffice 可执行路径（含 brew、`~/Applications`、snap/flatpak 等多候选路径）
-  - `install_auto()` 按平台依次尝试：
-    - macOS：Homebrew → 下载官方 DMG 并安装到 `~/Applications`（无需管理员权限）
-    - Linux：snap → flatpak → apt（pkexec） → dnf/yum（pkexec）
-  - 安装日志实时通过回调函数推送到 UI
-- 新增 `ui/widgets/libreoffice_setup_dialog.py` 安装引导对话框：
-  - 在 macOS/Linux 用户首次执行 Word/PPT → PDF 时自动弹出
-  - 后台 `QThread` 运行安装，不阻塞 UI；实时滚动日志展示
-  - 提供"自动安装"、"重新检测"、"打开官网"、"跳过"四种操作
-  - 安装成功后自动关闭对话框并继续执行转换
+**工具模块**
+- 新增 LibreOffice 自动检测：跨平台查找 LibreOffice 安装路径，覆盖 Homebrew、snap、flatpak 等常见安装方式
+- 新增 LibreOffice 自动安装：按平台优先级依次尝试（macOS: Homebrew → 官方 DMG；Linux: snap → flatpak → apt → dnf）
 
-**依赖与打包**
-- `requirements.txt`：`pywin32` 加平台标记 `; sys_platform == "win32"`（Linux/macOS `pip install` 不再报错）；移除未使用的 `pdf2image`
-- `main.spec`：新增 `core.converter._office_win` / `_office_unix` 到 hidden imports
-- GitHub Actions（`release.yml`）：
-  - Linux：`apt-get` 安装 `libreoffice`
-  - macOS：`brew install --cask libreoffice`
-  - 依赖安装合并为单步（利用平台标记，不再需要分平台过滤 requirements）
-  - Linux/macOS PyInstaller 命令补充 `_office_unix` hidden import 并排除 `win32com`/`pythoncom`
+**界面组件**
+- 新增 LibreOffice 安装引导对话框，在 macOS / Linux 用户首次执行 Word / PPT → PDF 时自动弹出
+- 安装过程在后台运行，不阻塞界面，支持实时查看安装日志；提供自动安装、重新检测、打开官网、跳过四种操作
+
+**构建/打包**
+- 依赖配置按平台标记隔离，macOS / Linux 不再安装 Windows 专用依赖
+- CI 流程补充各平台 LibreOffice 安装步骤，并将依赖安装合并为单步
 
 ### V0.2.1
 
 #### feat: 文件列表与任务列表拆分
 
-**功能**
-- 文件列表和任务列表拆分为独立面板，左右分栏（`QSplitter`）布局
-- 文件提交转换后从文件列表移除，不再保留
-- 任务列表保留完整转换历史，提供"清除已完成"按钮
-- 失败任务显示错误详情并附"重试"按钮
-- 取消任务显示"已取消"状态并附"重新开始"按钮
-- 批量图片合并任务在任务列表中以单条记录展示
-- 切换转换类型时，若新旧类型接受的文件扩展名不同且文件列表非空，弹出确认框后清空不匹配文件
+**主界面**
+- 文件列表与任务列表拆分为左右独立面板，提交转换后文件自动从文件列表移除
+- 切换转换类型时，若已有文件与新类型不兼容，弹出确认框后自动清空
 
-- 修复点击"取消全部"后，后台线程仍执行完毕并向 UI 发送信号（导致覆盖"已取消"状态或弹出输出文件）的问题
-- 引入 `_cancelled_ids` 集合，已取消任务的所有后续信号（`started` / `progress` / `finished`）均静默丢弃，不再触发 `all_tasks_done`
-- `BatchImageTask` 新增取消标志，队列中尚未开始的批量任务在 `run()` 开头即可提前退出
+**任务管理**
+- 任务列表保留完整转换历史，支持清除已完成、重试失败、重新开始已取消的任务
+- 批量图片合并以单条记录在任务列表中展示
+- 修复取消任务后后台线程仍向 UI 发送信号、覆盖"已取消"状态的问题
 
-**显示**
-- 新增任务列表组件（`ui/widgets/task_list_widget.py`），含状态圆点、进度条、操作按钮
-- 文件类型图标从 emoji 替换为 SVG 矢量图标（`resources/icons/` 下新增 `word.svg`、`ppt.svg`、`pdf.svg`、`image.svg`）
-- 深色 / 浅色主题均补充了任务列表相关样式
+**界面组件**
+- 新增任务列表组件，含状态指示圆点、进度条和操作按钮
+
+**资源/样式**
+- 文件类型图标从 emoji 升级为 SVG 矢量图标，深色 / 浅色主题均已适配
 
 ### V0.1.1
 
-#### chore: 补充文档
+#### chore: 架构重构与文档完善
 
-- 补充更新文档为changelog.md
-- 创建项目说明文档.md
-- 调整项目doc目录结构
+**主界面**
+- 主界面拆分为调度器、主题管理器、文件列表组件等独立模块，降低单文件复杂度
 
-#### chore: main_window 拆分
+**任务管理**
+- 新增转换类型注册表，转换类型切换改为读取注册表，解耦配置与界面逻辑
+- 清理任务相关工具代码中的冗余常量
 
-- 新建转换路由调度器
-- task_manager 接入调度器
-- 新建主题管理器
-- main_window 接入主题管理器
-- 新建文件列表组件（骨架）
-- main_window 接入文件列表组件
-
-#### chore: 新建注册表注入，清理冗余代码
-
-- 新建转换类型注册表
-- main_window 切换读取注册表
-- file_utils 清理冗余常量
+**文档**
+- 新增项目说明文档与更新日志，整理 doc 目录结构
 
 ### V0.1.0
 
-#### chore: 补充安装依赖
+#### feat: 核心转换功能
 
-- 补充 pyinstaller 到 requirements.txt 中
+**转换核心**
+- 支持 Word / PPT → PDF、PDF → 图片等多种格式转换
+- 支持批量图片合并输出为单个 PDF
 
-#### chore: 补充指南
+**主界面**
+- 支持拖放上传文件及目录，自动识别目录内符合类型的文件
+- 切换转换类型时自动提示支持的输入格式，转换完成后自动打开输出文件
+- 支持浅色 / 深色双主题
 
-**功能**
-- 移除 poppler 依赖，换用 PyMuPDF
-- 新增指南，用户点击问号按钮后会弹出指南窗口，提供使用说明和常见问题解答
+**界面组件**
+- 新增帮助对话框，提供使用说明与常见问题解答
 
-#### feat: 允许上传目录
+#### fix: 稳定性修复
 
-**功能**
-- 允许用户上传目录，自动识别目录中的符合类型的文件，加入到转换队列
-- 修复多文件同时转换时的任务调度问题
+**任务管理**
+- 修复单次执行失败后后续任务无法继续的问题
+- 修复已完成任务在任务列表中重复执行的问题
+- 修复输入文件未按转换类型进行格式校验的问题
+- 多页 PDF 转图片改为在子目录中存放，避免文件混淆
 
-#### chore: onefile 打包
+#### build: 打包配置
 
-- 使用onefile模式打包，生成单个exe文件，方便分发
-- 更新打包说明文档，添加打包命令和模式说明
-
-**显示**
-
-- 在切换不同类型转换时，提示支持对应的输入类型
-- 修改软件显示图标
-
-#### chore: onedir 打包
-
-- 使用onedir模式打包
-
-#### bugfix: 补充类型检查等内容
-
-**功能**
-- 修复单次执行失败后后续任务无法执行的问题
-- 修复没有针对转换项目的输入文件进行类型检查的问题
-- 修复任务列表已完成任务重复执行问题
-- 多页 PDF 转图片改为创建子目录存放
-
-**显示**
-- 修复 checkbox 等符号显示样式错误问题
-- 切换tab时自动清除不符合类型的文件
-
-#### chore: 清空多余文件，修改样式
-
-**功能**
-- 添加转换完成后自动打开文件
-
-**显示**
-- 百分比显示调整至进度条后
-- 添加 light 主题色，提供修改样式的接口
-
-**代码结构**
-- 删除所有的 `__pycache__` 文件夹和 `.pyc` 文件
-- 更新 `.gitignore` 文件，添加 `test/*`、`**/*.pyc` 和 `**/__pycache__/*` 以忽略这些文件
+**构建/打包**
+- 支持单文件（onefile）打包模式，便于分发
+- 移除 poppler 依赖，改用 PyMuPDF，简化安装流程
+- 补充 PyInstaller 及必要运行时依赖
