@@ -190,20 +190,25 @@ For each commit hash from `git log --format="%H"` (oldest to newest):
 ```
 git show {hash} --stat --format=""
 ```
-Map changed files to module labels. Generate a new commit message:
+**Empty commit detection**: if the output contains no file change lines (i.e. no lines matching `N files? changed`), mark this commit as `DROP`. Do NOT generate a message for it and do NOT include it in the changelog.
+
+For non-empty commits: map changed files to module labels, generate a new commit message:
 ```
 {action}: {title}
 ```
 Apply the same quality rules as Mode 1.
 
-Collect the per-commit analysis results — they are reused in both Step 5 (rebase) and Step 6 (changelog rebuild).
+Collect the per-commit analysis results (non-empty commits only) — they are reused in both Step 5 (rebase) and Step 6 (changelog rebuild).
 
 **Step 5 — Apply rebase**
 
 Use an automated `git rebase` with a pre-generated sequence editor script to replace all commit messages non-interactively. The script must:
 1. Write a temporary todo file mapping each commit hash to its new `reword` message
 2. Set `GIT_SEQUENCE_EDITOR` to a script that outputs the new todo list
-3. Run `git rebase -i --root`
+3. For each `pick {hash}` line in the todo:
+   - If the commit was marked `DROP` in Step 4: replace `pick` with `drop` (no `exec` line)
+   - Otherwise: keep `pick` and append `exec git commit --amend --no-edit -F {msg_file}`
+4. Run `git rebase -i --root` (**without** `--keep-empty`)
 
 After completion, run `git log --oneline` and display the result so the user can verify the new messages.
 
